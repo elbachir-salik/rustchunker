@@ -9,3 +9,6 @@ __pycache__/
 *.egg-info/
 dist/
 build/
+benchmarks/data/
+benchmarks/data_scaling/
+SKILL.md
