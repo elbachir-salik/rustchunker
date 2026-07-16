@@ -10,7 +10,7 @@ use crate::readers::reader_for_extension;
 use crate::strategies::fixed::group_token_spans;
 use crate::strategies::sentence::SentenceStrategy;
 use crate::strategies::Strategy;
-use crate::tokenizer::tokenize_spans;
+use crate::tokenizer::{tokenize_spans, ByteToChar};
 use crate::Chunk;
 
 /// A chunk boundary plus its position within its own source text, before
@@ -72,13 +72,18 @@ fn chunk_core(text: &str, max_tokens: usize, overlap: usize, strategy: &str) -> 
         spans
     };
 
+    // RawChunk.start/end must be Python-string-compatible character
+    // offsets (see ByteToChar's doc comment) even though everything above
+    // this point operates on Rust byte offsets.
+    let byte_to_char = ByteToChar::new(text);
+
     Ok(spans
         .into_iter()
         .enumerate()
         .map(|(index, (start, end))| RawChunk {
             text: text[start..end].to_string(),
-            start,
-            end,
+            start: byte_to_char.convert(start),
+            end: byte_to_char.convert(end),
             index,
         })
         .collect())
