@@ -163,3 +163,45 @@ Reproduce with:
 pip install -r benchmarks/requirements-extra.txt
 python benchmarks/bench_vs_all.py
 ```
+
+## Memory usage
+
+Peak memory per library, chunking the same 1000-document corpus. Each
+library runs in its own isolated subprocess so one library's residual
+allocations or import overhead can't pollute another's measurement. Two
+numbers are reported:
+
+- **tracemalloc peak**: Python-heap allocations only. Finer-grained, but
+  partial — for rustchunker, this counts the final `Chunk.text` strings
+  (real CPython `str` objects created at the PyO3 boundary) but *not* any
+  transient Rust-side buffers, which are freed before ever reaching
+  Python.
+- **RSS peak** (via `psutil`): whole-process peak resident memory,
+  covering both Python and native allocations. This is the complete
+  picture and the number to trust for a fair cross-language comparison.
+
+| Library | tracemalloc peak | RSS peak |
+|---|---|---|
+| rustchunker | 1.2MB | 27.0MB |
+| LangChain | 36.8MB | 100.3MB |
+| LlamaIndex | 71.0MB | 185.2MB |
+| semantic-text-splitter | 0.1MB | **17.8MB** |
+| chonkie | 18.9MB | 62.5MB |
+
+Reported as measured, including the part that doesn't favor rustchunker:
+**`semantic-text-splitter` has the lowest RSS of all five**, lower than
+rustchunker. The most likely explanation is that rustchunker's `Chunk`
+carries a `metadata` dict (`source_file`, `page_number`, `total_chunks`,
+`strategy_used`) on *every* chunk — real per-chunk Python-heap overhead
+that `semantic-text-splitter`'s plain list-of-strings output doesn't pay.
+rustchunker is still far ahead of the pure-Python libraries (LangChain,
+LlamaIndex, chonkie) on memory, and fastest overall (see above) — but on
+memory specifically, the other Rust-based splitter currently wins.
+
+![Peak memory usage by chunking library](benchmarks/bench_memory.png)
+
+Reproduce with:
+```
+pip install -r benchmarks/requirements-extra.txt
+python benchmarks/bench_memory.py
+```
