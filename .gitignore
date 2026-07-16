@@ -1,6 +1,7 @@
 /target
 *.so
 *.pyd
+*.pdb
 __pycache__/
 *.pyc
 .venv/
