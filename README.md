@@ -205,3 +205,57 @@ Reproduce with:
 pip install -r benchmarks/requirements-extra.txt
 python benchmarks/bench_memory.py
 ```
+
+## Real-world documents
+
+The benchmarks above use short-to-medium synthetic text, which splits
+cleanly. This section uses 8 real, messy documents instead: 3 public-domain
+novels from Project Gutenberg (~450KB-770KB `.txt` each), 2 Wikipedia
+articles fetched as HTML via Wikipedia's stable REST endpoint (~875KB and
+~1.9MB), and 3 popular GitHub repos' `README.md` files.
+
+| Source | Files | Titles |
+|---|---|---|
+| Project Gutenberg | 3 | Pride and Prejudice, The Adventures of Sherlock Holmes, Frankenstein |
+| Wikipedia (REST HTML API) | 2 | Artificial intelligence, Rust (programming language) |
+| GitHub READMEs | 3 | facebook/react, microsoft/vscode, tensorflow/tensorflow |
+
+**This result does not favor rustchunker, and is reported as measured:**
+
+| Library | Time (8 docs) | Chunks |
+|---|---|---|
+| LangChain | **0.18-0.23s** | 2246 |
+| chonkie | 0.24-0.28s | 1788 |
+| LlamaIndex | 0.61-0.64s | 1993 |
+| rustchunker | 0.66-0.82s | 1589 |
+| semantic-text-splitter | 0.86-0.87s | 2314 |
+
+On this corpus, **rustchunker is slower than LangChain and chonkie** —
+the opposite of every result above. This is consistent with, and explained
+by, the Phase 0 profiling in "Performance improvements": rustchunker's
+speed advantage comes from (a) low per-call Rust overhead and (b)
+file-level parallelism across *many* files via rayon. Neither helps here
+— there are only 8 files, most of them individually large, so there's
+little parallel work to spread across cores, and the dominant cost per
+document is `unicode-segmentation`'s Unicode-correct sentence-boundary
+detection, which runs single-threaded per document (see "Performance
+improvements" for why intra-document parallelism was evaluated and
+deliberately not built). LangChain's and chonkie's simpler
+separator-based splitting is cheaper per byte on large single documents,
+even running single-threaded in pure Python.
+
+**Takeaway**: rustchunker's advantage is real but conditional — it wins
+decisively when chunking *many* small-to-medium files (the common RAG
+ingestion case: a knowledge base of many documents), and currently loses
+on a *few very large* documents. Fixing that would require the
+intra-document parallelism discussed above, which was deferred due to its
+overlap-correctness tradeoff.
+
+![Chunking real-world documents](benchmarks/bench_real_docs.png)
+
+Reproduce with:
+```
+pip install -r benchmarks/requirements-extra.txt
+python benchmarks/fetch_real_docs.py
+python benchmarks/bench_real_docs.py
+```
