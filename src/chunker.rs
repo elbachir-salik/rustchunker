@@ -7,9 +7,10 @@ use rayon::prelude::*;
 
 use crate::overlap::apply_overlap;
 use crate::readers::reader_for_extension;
-use crate::strategies::fixed::FixedStrategy;
+use crate::strategies::fixed::group_token_spans;
 use crate::strategies::sentence::SentenceStrategy;
 use crate::strategies::Strategy;
+use crate::tokenizer::tokenize_spans;
 use crate::Chunk;
 
 /// A chunk boundary plus its position within its own source text, before
@@ -42,8 +43,20 @@ fn chunk_core(text: &str, max_tokens: usize, overlap: usize, strategy: &str) -> 
     // extending on top) keeps the max_tokens cap meaningful when overlap>0.
     let core_max_tokens = max_tokens - overlap;
 
+    // Tokenize once and reuse it for both the fixed strategy's own grouping
+    // and apply_overlap's token-boundary lookups, instead of each computing
+    // it independently (previously a second full-document scan whenever
+    // strategy=="fixed" and overlap>0). Computed lazily -- only when one of
+    // those two consumers will actually need it -- so e.g. sentence strategy
+    // with overlap=0 still does zero whitespace-tokenization passes.
+    let token_spans = if strategy == "fixed" || overlap > 0 {
+        Some(tokenize_spans(text))
+    } else {
+        None
+    };
+
     let spans = match strategy {
-        "fixed" => FixedStrategy.split(text, core_max_tokens),
+        "fixed" => group_token_spans(token_spans.as_ref().unwrap(), core_max_tokens),
         "sentence" => SentenceStrategy.split(text, core_max_tokens),
         other => {
             return Err(PyNotImplementedError::new_err(format!(
@@ -53,7 +66,11 @@ fn chunk_core(text: &str, max_tokens: usize, overlap: usize, strategy: &str) -> 
         }
     };
 
-    let spans = apply_overlap(text, &spans, overlap);
+    let spans = if overlap > 0 {
+        apply_overlap(token_spans.as_ref().unwrap(), &spans, overlap)
+    } else {
+        spans
+    };
 
     Ok(spans
         .into_iter()
@@ -157,7 +174,7 @@ pub fn chunk_files(
         })
         .collect::<PyResult<Vec<_>>>()?;
 
-    let mut chunks = Vec::new();
+    let mut chunks = Vec::with_capacity(per_file.iter().map(|(_, raws)| raws.len()).sum());
     for (path, raws) in per_file {
         let total_chunks = raws.len();
         for raw in raws {
@@ -165,4 +182,59 @@ pub fn chunk_files(
         }
     }
     Ok(chunks)
+}
+
+#[cfg(test)]
+mod profile {
+    use super::*;
+    use std::time::Instant;
+
+    const WORDS: &[&str] = &[
+        "the", "quick", "brown", "fox", "jumps", "over", "lazy", "dog", "sun", "sets", "slowly",
+        "mountains", "travelers", "journey", "forest", "researchers", "systems", "networks",
+    ];
+
+    fn make_doc(n_sentences: usize) -> String {
+        let mut s = String::new();
+        for i in 0..n_sentences {
+            for w in 0..12 {
+                s.push_str(WORDS[(i * 12 + w) % WORDS.len()]);
+                s.push(' ');
+            }
+            s.push_str(". ");
+        }
+        s
+    }
+
+    // Diagnostic only -- not part of the regular test suite. Run with:
+    // cargo test --release -- --ignored --nocapture profile_chunk_core_phases
+    #[test]
+    #[ignore]
+    fn profile_chunk_core_phases() {
+        for n_sentences in [150usize, 1000, 8000] {
+            let text = make_doc(n_sentences);
+            eprintln!("\n--- {} sentences (~{} words) ---", n_sentences, n_sentences * 12);
+
+            let t0 = Instant::now();
+            let token_spans = tokenize_spans(&text);
+            eprintln!("tokenize_spans:        {:?}", t0.elapsed());
+
+            let t1 = Instant::now();
+            let sentence_spans = SentenceStrategy.split(&text, 236);
+            eprintln!("SentenceStrategy.split: {:?}", t1.elapsed());
+
+            let t2 = Instant::now();
+            let overlapped = apply_overlap(&token_spans, &sentence_spans, 20);
+            eprintln!("apply_overlap:         {:?}", t2.elapsed());
+
+            let t3 = Instant::now();
+            let _strings: Vec<String> =
+                overlapped.iter().map(|&(s, e)| text[s..e].to_string()).collect();
+            eprintln!("to_string() alloc:     {:?}", t3.elapsed());
+
+            let t4 = Instant::now();
+            let _ = chunk_core(&text, 256, 20, "sentence").unwrap();
+            eprintln!("end-to-end chunk_core: {:?}", t4.elapsed());
+        }
+    }
 }

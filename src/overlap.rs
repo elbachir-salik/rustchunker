@@ -1,17 +1,23 @@
-use crate::tokenizer::tokenize_spans;
-
 /// Extends the start of each chunk (after the first) backward by up to
 /// `overlap` whitespace tokens, so consecutive chunks share trailing/leading
 /// content. Operates on whole token spans, so it never cuts a word in half,
 /// and never reaches back past the previous chunk's own (pre-overlap) start
 /// — overlap can only pull in tokens that actually belonged to chunk N when
 /// building chunk N+1's head.
-pub fn apply_overlap(text: &str, spans: &[(usize, usize)], overlap: usize) -> Vec<(usize, usize)> {
+///
+/// Takes the document's token spans as a parameter rather than the text
+/// itself, so callers that already tokenized the document (e.g. the fixed
+/// strategy's own grouping) can reuse that instead of re-scanning the whole
+/// document a second time just for overlap.
+pub fn apply_overlap(
+    token_spans: &[(usize, usize)],
+    spans: &[(usize, usize)],
+    overlap: usize,
+) -> Vec<(usize, usize)> {
     if overlap == 0 || spans.len() < 2 {
         return spans.to_vec();
     }
 
-    let token_spans = tokenize_spans(text);
     // token_spans is sorted by start offset (built via a left-to-right scan),
     // so this is a binary search, not a linear one -- important, since this
     // is called per chunk and a linear scan here would make the whole
@@ -43,6 +49,7 @@ mod tests {
     use super::*;
     use crate::strategies::fixed::FixedStrategy;
     use crate::strategies::Strategy;
+    use crate::tokenizer::tokenize_spans;
 
     const TEXT: &str = "one two three four five six";
 
@@ -50,16 +57,20 @@ mod tests {
         FixedStrategy.split(TEXT, max_tokens)
     }
 
+    fn tokens() -> Vec<(usize, usize)> {
+        tokenize_spans(TEXT)
+    }
+
     #[test]
     fn no_overlap_is_a_no_op() {
         let spans = fixed_spans(3);
-        assert_eq!(apply_overlap(TEXT, &spans, 0), spans);
+        assert_eq!(apply_overlap(&tokens(), &spans, 0), spans);
     }
 
     #[test]
     fn shares_tail_tokens_with_next_chunk() {
         let spans = fixed_spans(3); // "one two three" / "four five six"
-        let overlapped = apply_overlap(TEXT, &spans, 1);
+        let overlapped = apply_overlap(&tokens(), &spans, 1);
         assert_eq!(overlapped[0], spans[0]);
         // chunk 1 should now start at "three", the last token of chunk 0
         assert_eq!(
@@ -71,7 +82,7 @@ mod tests {
     #[test]
     fn overlap_never_cuts_a_word() {
         let spans = fixed_spans(3);
-        let overlapped = apply_overlap(TEXT, &spans, 2);
+        let overlapped = apply_overlap(&tokens(), &spans, 2);
         let head = &TEXT[overlapped[1].0..overlapped[1].1];
         assert!(head.split_whitespace().all(|w| !w.is_empty()));
         assert_eq!(head, "two three four five six");
@@ -81,14 +92,14 @@ mod tests {
     fn overlap_clamped_to_previous_chunk_length() {
         let spans = fixed_spans(3);
         // requesting far more overlap than chunk 0 has tokens (3)
-        let overlapped = apply_overlap(TEXT, &spans, 100);
+        let overlapped = apply_overlap(&tokens(), &spans, 100);
         assert_eq!(&TEXT[overlapped[1].0..overlapped[1].1], TEXT);
     }
 
     #[test]
     fn first_chunk_is_never_extended() {
         let spans = fixed_spans(3);
-        let overlapped = apply_overlap(TEXT, &spans, 2);
+        let overlapped = apply_overlap(&tokens(), &spans, 2);
         assert_eq!(overlapped[0], spans[0]);
     }
 }

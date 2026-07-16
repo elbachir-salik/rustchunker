@@ -5,12 +5,19 @@ pub struct FixedStrategy;
 
 impl Strategy for FixedStrategy {
     fn split(&self, text: &str, max_tokens: usize) -> Vec<(usize, usize)> {
-        let spans = tokenize_spans(text);
-        spans
-            .chunks(max_tokens)
-            .map(|group| (group.first().unwrap().0, group.last().unwrap().1))
-            .collect()
+        group_token_spans(&tokenize_spans(text), max_tokens)
     }
+}
+
+/// Groups pre-computed token spans into `max_tokens`-sized chunk boundaries.
+/// Split out from `Strategy::split` so callers that already have token spans
+/// on hand (`chunker::chunk_core`, to avoid re-tokenizing the whole document
+/// again for overlap) can reuse them directly instead of retokenizing.
+pub fn group_token_spans(token_spans: &[(usize, usize)], max_tokens: usize) -> Vec<(usize, usize)> {
+    token_spans
+        .chunks(max_tokens)
+        .map(|group| (group.first().unwrap().0, group.last().unwrap().1))
+        .collect()
 }
 
 #[cfg(test)]

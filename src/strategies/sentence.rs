@@ -122,3 +122,54 @@ mod tests {
         assert_eq!(result, vec!["one two three", "four five six", "seven eight."]);
     }
 }
+
+#[cfg(test)]
+mod profile {
+    use super::*;
+    use std::time::Instant;
+
+    const WORDS: &[&str] = &[
+        "the", "quick", "brown", "fox", "jumps", "over", "lazy", "dog", "sun", "sets", "slowly",
+        "mountains", "travelers", "journey", "forest", "researchers", "systems", "networks",
+    ];
+
+    fn make_doc(n_sentences: usize) -> String {
+        let mut s = String::new();
+        for i in 0..n_sentences {
+            for w in 0..12 {
+                s.push_str(WORDS[(i * 12 + w) % WORDS.len()]);
+                s.push(' ');
+            }
+            s.push_str(". ");
+        }
+        s
+    }
+
+    // Diagnostic only. Run with:
+    // cargo test --release -p rustchunker -- --ignored --nocapture profile_sentence_spans_vs_full_split
+    #[test]
+    #[ignore]
+    fn profile_sentence_spans_vs_full_split() {
+        for n_sentences in [1000usize, 8000] {
+            let text = make_doc(n_sentences);
+            eprintln!("\n--- {} sentences ---", n_sentences);
+
+            let t0 = Instant::now();
+            let spans = sentence_spans(&text);
+            let t_spans = t0.elapsed();
+            eprintln!("sentence_spans (unicode-segmentation + abbrev merge): {:?}", t_spans);
+
+            let t1 = Instant::now();
+            let mut total_tokens = 0usize;
+            for &(s, e) in &spans {
+                total_tokens += count_tokens(&text[s..e]);
+            }
+            let t_counting = t1.elapsed();
+            eprintln!("sum of count_tokens over all sentences ({} tokens): {:?}", total_tokens, t_counting);
+
+            let t2 = Instant::now();
+            let _ = SentenceStrategy.split(&text, 236);
+            eprintln!("full SentenceStrategy.split:                          {:?}", t2.elapsed());
+        }
+    }
+}
