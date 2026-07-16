@@ -20,9 +20,27 @@ impl Reader for HtmlReader {
     }
 }
 
+/// ASCII-case-insensitive substring search returning a byte offset into
+/// `haystack`. Tag names are ASCII, so we compare byte-by-byte with
+/// `eq_ignore_ascii_case` and never allocate. The previous implementation
+/// did `haystack.to_lowercase()` on every call, which was both:
+///   - quadratic on large documents: a full O(n) allocation + Unicode
+///     lowercasing pass per match, and this is called once per `<script>`
+///     and `</script>` (and again for `<style>`), so a Wikipedia page with
+///     many `<style>` blocks spent >100ms here alone; and
+///   - subtly wrong: lowercasing non-ASCII *haystack* content can change
+///     byte lengths, so the offset found in the lowercased copy may not be
+///     a valid offset into the original string. ASCII bytes never appear as
+///     UTF-8 continuation bytes, so an ASCII byte search always lands on a
+///     valid char boundary.
 fn find_ci(haystack: &str, needle: &str) -> Option<usize> {
-    // Tag names are ASCII, so lowercasing doesn't shift byte offsets.
-    haystack.to_lowercase().find(&needle.to_lowercase())
+    let h = haystack.as_bytes();
+    let n = needle.as_bytes();
+    if n.is_empty() || h.len() < n.len() {
+        return None;
+    }
+    (0..=h.len() - n.len())
+        .find(|&i| h[i..i + n.len()].eq_ignore_ascii_case(n))
 }
 
 fn strip_tag_block(html: &str, tag: &str) -> String {
@@ -63,5 +81,30 @@ mod tests {
         assert!(text.contains("Visible"));
         assert!(!text.contains("alert"));
         assert!(!text.contains("color:red"));
+    }
+
+    #[test]
+    fn strips_uppercase_and_mixed_case_tags() {
+        let html = "<HTML><HEAD><STYLE>x{y:z}</STYLE></HEAD><BODY><Script>bad()</Script><p>Keep</p></BODY></HTML>";
+        let text = HtmlReader.extract(html);
+        assert!(text.contains("Keep"));
+        assert!(!text.contains("bad"));
+        assert!(!text.contains("x{y:z}"));
+    }
+
+    #[test]
+    fn handles_non_ascii_content_before_stripped_tags() {
+        // Regression: the old find_ci lowercased the whole haystack per
+        // search, so non-ASCII content *before* a tag could shift the byte
+        // offset it returned (wrong slice, or a panic on a non-char
+        // boundary). Multi-byte characters before <style>/<script> exercise
+        // that path -- the ASCII byte search must land on valid boundaries.
+        let html = "<p>café résumé 日本語 —— naïve</p><style>a{b:c}</style><p>Kept 🎉 here</p><script>bad()</script>";
+        let text = HtmlReader.extract(html);
+        assert!(text.contains("café"));
+        assert!(text.contains("日本語"));
+        assert!(text.contains("Kept"));
+        assert!(!text.contains("a{b:c}"));
+        assert!(!text.contains("bad"));
     }
 }
