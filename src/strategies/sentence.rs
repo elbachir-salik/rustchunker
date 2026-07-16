@@ -21,19 +21,41 @@ fn ends_with_abbreviation(sentence: &str) -> bool {
 
 /// Unicode sentence boundaries, merged back across known abbreviations so
 /// e.g. "Dr. Smith is here." is one sentence, not two.
-fn sentence_spans(text: &str) -> Vec<(usize, usize)> {
+///
+/// pub(crate) so lib.rs can expose it as an internal, benchmark-only
+/// ground-truth oracle (see `sentence_boundaries`) for checking whether
+/// other chunking libraries' chunk boundaries land on real sentence ends.
+pub(crate) fn sentence_spans(text: &str) -> Vec<(usize, usize)> {
     let mut spans: Vec<(usize, usize)> = Vec::new();
+    // Start of a run of candidates being merged forward across an
+    // abbreviation-ending false-positive boundary (e.g. "Dr." followed by a
+    // capitalized name). None means the next candidate starts its own span.
+    let mut pending_start: Option<usize> = None;
 
     for (start, s) in text.split_sentence_bound_indices() {
         let end = start + s.len();
+        let span_start = pending_start.unwrap_or(start);
+
         if ends_with_abbreviation(s) {
-            if let Some(last) = spans.last_mut() {
-                last.1 = end;
-                continue;
-            }
+            // This candidate's own ending looks like an abbreviation, so the
+            // boundary Unicode placed right after it is likely wrong --
+            // don't finalize a span yet, carry the start forward so the
+            // next candidate gets merged into this one instead.
+            pending_start = Some(span_start);
+            continue;
         }
-        spans.push((start, end));
+
+        spans.push((span_start, end));
+        pending_start = None;
     }
+
+    // A trailing abbreviation-like ending with nothing after it to merge
+    // into (text truncated right after e.g. "etc.") still needs to be
+    // flushed as its own span rather than silently dropped.
+    if let Some(start) = pending_start {
+        spans.push((start, text.len()));
+    }
+
     spans
 }
 
@@ -97,6 +119,41 @@ mod tests {
         let text = "Dr. Smith is here. He is a doctor.";
         let spans = SentenceStrategy.split(text, 100);
         assert_eq!(slices(text, &spans), vec!["Dr. Smith is here. He is a doctor."]);
+    }
+
+    #[test]
+    fn sentence_spans_itself_merges_abbreviation_not_just_the_packing_step() {
+        // Regression test: a prior version merged abbreviations backward
+        // instead of forward, so `sentence_spans` itself still produced
+        // "Dr. " as its own separate span -- the tests above only passed
+        // because a generous max_tokens let the *packing* step reassemble
+        // "Dr." with the next sentence regardless. A token budget too small
+        // for packing to save it (max_tokens=1) exposes the real bug: "Dr."
+        // would end up as its own isolated chunk. Check sentence_spans
+        // directly so this can't be masked by packing again.
+        let text = "Dr. Smith is here. He is a doctor.";
+        let spans = sentence_spans(text);
+        assert_eq!(
+            slices(text, &spans),
+            vec!["Dr. Smith is here. ", "He is a doctor."]
+        );
+    }
+
+    #[test]
+    fn small_max_tokens_still_keeps_abbreviation_with_next_word() {
+        // max_tokens=2 is enough to hold "Dr." + "Smith" together (but not
+        // the whole 4-token sentence, so the oversized-sentence hard-split
+        // fallback still kicks in). Before the fix, "Dr." was treated as its
+        // own complete 1-token "sentence" from the start and would have
+        // been emitted as its own isolated chunk regardless of max_tokens.
+        let text = "Dr. Smith is here.";
+        let spans = SentenceStrategy.split(text, 2);
+        let result = slices(text, &spans);
+        assert!(
+            result[0].starts_with("Dr. Smith"),
+            "expected 'Dr.' to stay attached to 'Smith', got {:?}",
+            result
+        );
     }
 
     #[test]
