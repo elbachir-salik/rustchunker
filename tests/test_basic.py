@@ -20,4 +20,4 @@ def test_chunk_rejects_overlap():
 
 def test_chunk_rejects_unknown_strategy():
     with pytest.raises(NotImplementedError):
-        chunk("a b c", max_tokens=2, strategy="sentence")
+        chunk("a b c", max_tokens=2, strategy="paragraph")

@@ -4,6 +4,7 @@ class Chunk:
     end: int
     index: int
 
+# strategy: one of "fixed", "sentence" (others raise NotImplementedError)
 def chunk(
     text: str,
     max_tokens: int,
