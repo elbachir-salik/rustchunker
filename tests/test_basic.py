@@ -13,9 +13,14 @@ def test_chunk_fixed_basic():
         assert original[c.start : c.end] == c.text
 
 
-def test_chunk_rejects_overlap():
-    with pytest.raises(ValueError):
-        chunk("a b c", max_tokens=2, overlap=1)
+def test_chunk_applies_overlap():
+    original = "one two three four five six"
+    result = chunk(original, max_tokens=3, overlap=1)
+    assert len(result) == 3
+    assert [c.text for c in result] == ["one two", "two three four", "four five six"]
+    for c in result:
+        assert len(c.text.split()) <= 3
+        assert original[c.start : c.end] == c.text
 
 
 def test_chunk_rejects_unknown_strategy():
