@@ -55,3 +55,74 @@ python benchmarks/generate_test_data.py --count 1000
 python benchmarks/bench_vs_langchain.py
 python benchmarks/bench_scaling.py
 ```
+
+## Performance improvements
+
+An investigation into the two numbers above (why the LangChain speedup
+shrinks on large documents, and why `chunk_files` throughput dropped at
+10,000 files) found two real, fixable issues, plus a profiling result
+worth recording. The sections above are left as originally measured for
+comparison; this section adds the "after" numbers from the same,
+unmodified benchmark scripts.
+
+**What was fixed:**
+- `apply_overlap` was re-tokenizing the *entire* document from scratch on
+  every call, even though the `fixed` strategy had already computed the
+  same token spans moments earlier and discarded them. Every benchmark
+  above uses `overlap=20`, so this redundant full-document scan was
+  running on every single chunk call. Fixed by computing token spans once
+  and threading them through — output is byte-identical, verified by the
+  full existing test suite (18 Rust + 23 Python tests) passing unchanged.
+- `chunk_files` built its output `Vec<Chunk>` via repeated `push` from
+  empty, instead of pre-sizing it with the already-known total chunk
+  count. This turned out to be the dominant cost behind the 10,000-file
+  slowdown — not filesystem I/O as originally suspected.
+
+**Results** (same methodology as above; re-run several times since this
+machine shows meaningful run-to-run variance — numbers below are
+representative, not best-case):
+
+| Document size (~words) | rustchunker (before) | rustchunker (after) | Speedup vs LangChain (before → after) |
+|---|---|---|---|
+| ~300  | 0.18s | 0.16s | 5.5x → 4.0x* |
+| ~2000 | 1.27s | 0.90s | 1.3x → 1.9x |
+
+*\*Small-document speedup varies 4-5.5x across runs due to system noise; the underlying rustchunker time itself improved or held steady in every run — it did not regress.*
+
+![rustchunker vs LangChain, after fix](benchmarks/bench_vs_langchain_after_fix.png)
+
+| Files | Chunks/sec (before) | Chunks/sec (after) |
+|---|---|---|
+| 100 | ~7,000 | ~8,200 |
+| 1,000 | ~7,100 | ~8,600 |
+| 10,000 | ~4,200 (degrading) | ~8,000 (steady) |
+
+The key change isn't the absolute numbers (which are noisy on this
+machine) but the *shape*: throughput no longer drops as file count grows
+— the 10,000-file case used to be the slowest per-chunk, and now performs
+in the same range as 100/1,000 files.
+
+![chunk_files scaling, after fix](benchmarks/bench_scaling_after_fix.png)
+
+**What was investigated but not changed:** profiling (via targeted
+`#[ignore]`-marked diagnostic tests, not shipped as part of the normal
+test suite) found that for the `sentence` strategy, 85-97% of chunking
+time is spent inside the `unicode-segmentation` crate's sentence-boundary
+detection itself — tokenization, overlap, and final string allocation are
+all under a few percent each. This rules out a `memchr`-based tokenizer
+speedup (confirmed not to be the bottleneck) and means the only remaining
+lever for large single documents is intra-document parallelism (splitting
+a document into sections and detecting sentence boundaries in parallel).
+That was evaluated and deliberately not pursued for now: it would change
+overlap behavior right at artificial section-boundary points, a real
+semantics tradeoff versus today's exact sequential behavior, for a case
+(single very large documents) that's less central to typical RAG chunking
+than the many-files case already fixed above.
+
+Reproduce with the same commands as above (this section re-runs the
+identical scripts, just with `--out` pointed at different filenames so
+the original charts above stay untouched):
+```
+python benchmarks/bench_vs_langchain.py --out benchmarks/bench_vs_langchain_after_fix.png
+python benchmarks/bench_scaling.py --out benchmarks/bench_scaling_after_fix.png
+```
