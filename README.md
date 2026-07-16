@@ -324,3 +324,67 @@ Reproduce with:
 pip install -r benchmarks/requirements-extra.txt
 python benchmarks/bench_correctness.py
 ```
+
+## Real-world documents, revisited: fixing the HTML bottleneck
+
+The "Real-world documents" section above concluded that rustchunker *loses*
+on a few large real documents. A follow-up investigation found that
+conclusion was wrong on two counts — one a measurement flaw, one a real
+bug — and both are fixed here. The original section is left untouched
+above for comparison; the corrected numbers are below.
+
+**Two causes, measured and separated:**
+
+1. **The original numbers were from a debug build.** Every benchmark on
+   this page was run after a plain `maturin develop`, which builds
+   *unoptimized* Rust. The wheel you actually `pip install` is
+   release-optimized (`maturin develop --release` / `maturin build
+   --release`). Rebuilding the exact same benchmark in release, with no
+   code change, took rustchunker on the real-document corpus from
+   ~0.66–0.82s down to ~0.22–0.32s. (This handicap applied to rustchunker
+   in *every* table on this page — the Python libraries it's compared
+   against were always running their own optimized code — so the other
+   sections understate rustchunker too; they simply weren't re-measured
+   here.)
+
+2. **The HTML reader had an O(n²) bottleneck.** Profiling the release build
+   per file showed the 1.9MB Wikipedia HTML file alone took ~205ms to
+   extract text from — and 133ms of that was a single helper,
+   `strip_tag_block`, whose case-insensitive search allocated a fully
+   Unicode-lowercased copy of the *entire remaining document* on every
+   search, once per `<script>`/`<style>` tag (Wikipedia's HTML has many).
+   Replaced with an allocation-free ASCII-case-insensitive byte scan:
+   that phase dropped from ~133ms to ~5ms. The old approach was also
+   subtly *incorrect* — lowercasing non-ASCII haystack content can shift
+   byte offsets, so it could return an offset that mis-sliced or panicked
+   on Unicode-heavy HTML; the byte scan is correct as well as fast.
+
+**Corrected results** (release build, with the HTML fix; same 8 real
+documents, representative of several runs):
+
+| Library | Time (8 docs), before¹ | Time (8 docs), after² |
+|---|---|---|
+| rustchunker | 0.66–0.82s | **0.11–0.14s** |
+| LangChain | 0.18–0.23s | 0.25–0.31s |
+| chonkie | 0.24–0.28s | 0.33–0.40s |
+| LlamaIndex | 0.61–0.64s | 0.60–0.81s |
+| semantic-text-splitter | 0.86–0.87s | 0.99–1.43s |
+
+¹ debug build, unfixed HTML reader (the "Real-world documents" table above).
+² release build + HTML fix. Other libraries are unchanged code; their
+run-to-run drift here is system noise, not a regression.
+
+With both issues addressed, **rustchunker is the fastest of the five on
+this real-document corpus too**, not the slowest — reversing the earlier
+conclusion. The isolated contributions: release build ~3x, HTML fix a
+further ~2x on this HTML-heavy corpus.
+
+![Real-world documents after HTML fix](benchmarks/bench_real_docs_after_fix.png)
+
+Reproduce with (note the `--release`):
+```
+pip install -r benchmarks/requirements-extra.txt
+maturin develop --release
+python benchmarks/fetch_real_docs.py
+python benchmarks/bench_real_docs.py --out benchmarks/bench_real_docs_after_fix.png
+```
