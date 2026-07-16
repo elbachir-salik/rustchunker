@@ -1,0 +1,4 @@
+llama-index-core
+semantic-text-splitter
+chonkie
+psutil
