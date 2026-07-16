@@ -126,3 +126,40 @@ the original charts above stay untouched):
 python benchmarks/bench_vs_langchain.py --out benchmarks/bench_vs_langchain_after_fix.png
 python benchmarks/bench_scaling.py --out benchmarks/bench_scaling_after_fix.png
 ```
+
+## Comparison against more chunking libraries
+
+Same 1000-document corpus and word-count token budget (`max_tokens=256`,
+`overlap=20`) as above, extended to the other chunking libraries people
+tend to ask about, including `semantic-text-splitter` (also Rust-based —
+the closest direct competitor). Each library is configured with an
+equivalent word-count callback/tokenizer rather than its own default, so
+the comparison is on chunk size, not units. All libraries process files
+in a plain Python loop (none of them has a built-in parallel multi-file
+API) — that loop, not just per-call algorithm speed, is part of what's
+being measured.
+
+| Library | Version | Time (1000 docs) | vs rustchunker |
+|---|---|---|---|
+| rustchunker | 0.1.0 | 0.22s | 1x |
+| LangChain (`RecursiveCharacterTextSplitter`) | 1.1.2 | 0.81s | 3.7x slower |
+| LlamaIndex (`SentenceSplitter`) | 0.14.23 | 1.59s | 7.3x slower |
+| semantic-text-splitter | 0.32.0 | 0.74s | 3.4x slower |
+| chonkie (`TokenChunker`) | 1.7.0 | 0.91s | 4.2x slower |
+
+Numbers vary run to run (see the caveat above), but the relative
+ordering was consistent across repeated runs: rustchunker fastest,
+`semantic-text-splitter` and LangChain close behind each other, then
+chonkie, then LlamaIndex slowest. Notably, even against a Rust-based
+competitor with no per-call algorithmic disadvantage, rustchunker's
+`chunk_files` still comes out ahead — it batches all files through one
+parallel call instead of crossing the Python↔native boundary once per
+file in a loop.
+
+![Comparison across chunking libraries](benchmarks/bench_vs_all.png)
+
+Reproduce with:
+```
+pip install -r benchmarks/requirements-extra.txt
+python benchmarks/bench_vs_all.py
+```
