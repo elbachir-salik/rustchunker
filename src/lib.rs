@@ -1,6 +1,7 @@
 use pyo3::prelude::*;
 
 mod chunker;
+mod overlap;
 mod strategies;
 mod tokenizer;
 
