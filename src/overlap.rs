@@ -12,12 +12,12 @@ pub fn apply_overlap(text: &str, spans: &[(usize, usize)], overlap: usize) -> Ve
     }
 
     let token_spans = tokenize_spans(text);
-    let token_index_at_or_after = |byte_start: usize| -> usize {
-        token_spans
-            .iter()
-            .position(|&(s, _)| s >= byte_start)
-            .unwrap_or(token_spans.len())
-    };
+    // token_spans is sorted by start offset (built via a left-to-right scan),
+    // so this is a binary search, not a linear one -- important, since this
+    // is called per chunk and a linear scan here would make the whole
+    // function O(n^2) in document size instead of O(n log n).
+    let token_index_at_or_after =
+        |byte_start: usize| -> usize { token_spans.partition_point(|&(s, _)| s < byte_start) };
 
     let mut result = Vec::with_capacity(spans.len());
     result.push(spans[0]);
