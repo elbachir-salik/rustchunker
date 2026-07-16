@@ -388,3 +388,61 @@ maturin develop --release
 python benchmarks/fetch_real_docs.py
 python benchmarks/bench_real_docs.py --out benchmarks/bench_real_docs_after_fix.png
 ```
+
+## All benchmarks, re-run in release build
+
+Since the debug-build handicap described above applied to rustchunker in
+*every* table on this page (the Python libraries it's compared against were
+always running optimized code), the synthetic benchmarks were re-run in a
+release build too. The original (debug) sections above are left untouched;
+these are the corrected numbers. Same corpus, settings, and methodology as
+each original section — only the rustchunker build mode changed
+(`maturin develop --release`).
+
+**vs LangChain, 1000 synthetic documents** (`sentence`, `max_tokens=256`,
+`overlap=20`):
+
+| | rustchunker | LangChain | Speedup |
+|---|---|---|---|
+| debug (original) | ~0.16s | ~0.98s | ~4–5.5x |
+| release | **~0.11s** | ~1.10s | **~7–11x** |
+
+**File-count scaling** (`chunk_files` throughput):
+
+| Files | Chunks/sec (debug) | Chunks/sec (release) |
+|---|---|---|
+| 100 | ~8,200 | ~11,000–16,000 |
+| 1,000 | ~8,600 | ~15,000–23,000 |
+| 10,000 | ~8,000 | ~15,000–30,000 |
+
+**Five-library comparison, 1000 synthetic documents** (multiplier = how
+much slower than rustchunker):
+
+| Library | vs rustchunker (debug) | vs rustchunker (release) |
+|---|---|---|
+| rustchunker | 1x (~0.22s) | 1x (**~0.10s**) |
+| LangChain | 3.7x | ~10–11x |
+| semantic-text-splitter | 3.4x | ~10–11x |
+| chonkie | 4.2x | ~13–14x |
+| LlamaIndex | 7.3x | ~24x |
+
+The most striking correction is `semantic-text-splitter`, the other
+Rust-based library: it went from "3.4x slower" to "~11x slower" — not
+because it changed, but because it was always release-optimized while
+rustchunker had been measured in debug. Apples-to-apples (both optimized),
+rustchunker's batched parallel `chunk_files` is an order of magnitude
+ahead on this many-files workload.
+
+**Memory** is essentially unchanged from the debug numbers (peak memory
+isn't sensitive to optimization level) — rustchunker ~27MB RSS,
+`semantic-text-splitter` still lowest at ~18MB — so the "Memory usage"
+section above stands as-is.
+
+![vs LangChain, release build](benchmarks/bench_vs_langchain_release.png)
+![Five-library comparison, release build](benchmarks/bench_vs_all_release.png)
+
+Numbers show meaningful run-to-run variance on this machine (ranges above
+span several runs); the shape and ordering are stable. Reproduce any of
+them by adding `maturin develop --release` before the reproduce commands in
+the corresponding section above, and pointing `--out` at a `*_release.png`
+filename.
