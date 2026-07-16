@@ -259,3 +259,68 @@ pip install -r benchmarks/requirements-extra.txt
 python benchmarks/fetch_real_docs.py
 python benchmarks/bench_real_docs.py
 ```
+
+## Chunk boundary correctness
+
+Speed and memory aren't the whole story — a chunker that cuts mid-sentence
+produces worse retrieval context regardless of how fast it got there. This
+compares whether each library's chunk *boundaries* land on real sentence
+ends, using rustchunker's own (already independently tested) Unicode
+sentence-boundary detection as the ground truth, exposed internally for
+this purpose. Other libraries only return chunk text, not offsets, so each
+chunk's end is relocated in the source document via substring search;
+chunks whose text can't be relocated (e.g. after whitespace normalization)
+are counted separately as "unlocatable" rather than mis-scored.
+
+**Two real bugs were found and fixed while building this, before the
+numbers below were meaningful at all:**
+
+1. **The abbreviation-merge logic was backwards.** It checked whether the
+   *current* candidate sentence ended with an abbreviation and tried to
+   merge it into the *previous* one — but "Dr." is usually the *first*
+   fragment, with nothing before it to merge into. `sentence_spans` never
+   actually merged "Dr." forward into "Smith is here."; every existing
+   test just happened to use a token budget generous enough for the
+   *packing* step to glue things back together regardless, masking the
+   bug completely. Fixed, with regression tests using a budget too small
+   for packing to save it.
+2. **`Chunk.start`/`Chunk.end` were Rust byte offsets, not Python character
+   offsets.** For any text with multi-byte UTF-8 characters (accented
+   letters, smart quotes, em-dashes, CJK, emoji), `text[chunk.start:chunk.end]`
+   silently disagreed with `chunk.text` in Python. Every test fixture in
+   this project had been pure ASCII up to this point (where the two
+   coincide), so nothing caught it until real book text with real
+   typography did. Fixed by converting to character offsets exactly once,
+   at the point results cross into Python — internal chunking logic still
+   uses byte offsets throughout, since that's what Rust string slicing
+   needs. **This changes `Chunk.start`/`Chunk.end` values for any
+   non-ASCII input** compared to earlier versions of this library.
+
+**Results**, combining 30 synthetic documents and the 8 real documents
+from above:
+
+| Library | Clean | Broken (mid-sentence) | Unlocatable |
+|---|---|---|---|
+| rustchunker | 100.0% | 0.0% | 0.0% |
+| semantic-text-splitter | 100.0% | 0.0% | 0.0% |
+| LangChain | 98.4% | 1.6% | 0.0% |
+| LlamaIndex | 78.8% | 21.2% | 0.0% |
+| chonkie | 6.5% | 93.5% | 0.0% |
+
+Read this alongside what each library is actually designed to do:
+`chonkie`'s `TokenChunker` is a pure token-window splitter with no
+linguistic awareness at all, so a low score is expected, not a flaw.
+LangChain's `RecursiveCharacterTextSplitter` scores well here mostly
+because its default separator hierarchy (paragraph, then line, then word)
+tends to land on sentence ends for this kind of prose, not because it
+specifically targets sentences. `LlamaIndex`'s `SentenceSplitter` — whose
+name specifically promises sentence awareness — landing at 78.8% is the
+most notable result in this table.
+
+![Chunk boundary correctness](benchmarks/bench_correctness.png)
+
+Reproduce with:
+```
+pip install -r benchmarks/requirements-extra.txt
+python benchmarks/bench_correctness.py
+```
