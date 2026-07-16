@@ -1,16 +1,19 @@
-use pyo3::exceptions::{PyNotImplementedError, PyValueError};
 use pyo3::prelude::*;
 
+mod chunker;
+mod strategies;
+mod tokenizer;
+
 #[pyclass]
-struct Chunk {
+pub struct Chunk {
     #[pyo3(get)]
-    text: String,
+    pub text: String,
     #[pyo3(get)]
-    start: usize,
+    pub start: usize,
     #[pyo3(get)]
-    end: usize,
+    pub end: usize,
     #[pyo3(get)]
-    index: usize,
+    pub index: usize,
 }
 
 #[pymethods]
@@ -23,63 +26,10 @@ impl Chunk {
     }
 }
 
-/// Byte-offset spans of whitespace-delimited tokens in `text`.
-/// Offsets are byte indices from `char_indices()`, which always land on
-/// valid UTF-8 boundaries, so they can be sliced back into `text` safely.
-fn tokenize_spans(text: &str) -> Vec<(usize, usize)> {
-    let mut spans = Vec::new();
-    let mut token_start: Option<usize> = None;
-
-    for (idx, ch) in text.char_indices() {
-        if ch.is_whitespace() {
-            if let Some(start) = token_start.take() {
-                spans.push((start, idx));
-            }
-        } else if token_start.is_none() {
-            token_start = Some(idx);
-        }
-    }
-    if let Some(start) = token_start {
-        spans.push((start, text.len()));
-    }
-    spans
-}
-
 #[pyfunction]
 #[pyo3(signature = (text, max_tokens, overlap=0, strategy="fixed".to_string()))]
 fn chunk(text: &str, max_tokens: usize, overlap: usize, strategy: String) -> PyResult<Vec<Chunk>> {
-    if strategy != "fixed" {
-        return Err(PyNotImplementedError::new_err(format!(
-            "strategy '{}' is not implemented yet; only 'fixed' is supported in this version",
-            strategy
-        )));
-    }
-    if overlap != 0 {
-        return Err(PyValueError::new_err(
-            "overlap is not yet supported; pass overlap=0",
-        ));
-    }
-    if max_tokens == 0 {
-        return Err(PyValueError::new_err("max_tokens must be greater than 0"));
-    }
-
-    let spans = tokenize_spans(text);
-    let chunks = spans
-        .chunks(max_tokens)
-        .enumerate()
-        .map(|(index, group)| {
-            let start = group.first().unwrap().0;
-            let end = group.last().unwrap().1;
-            Chunk {
-                text: text[start..end].to_string(),
-                start,
-                end,
-                index,
-            }
-        })
-        .collect();
-
-    Ok(chunks)
+    chunker::chunk_text(text, max_tokens, overlap, &strategy)
 }
 
 #[pymodule]
