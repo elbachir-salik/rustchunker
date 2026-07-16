@@ -1,0 +1,18 @@
+[build-system]
+requires = ["maturin>=1.12,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "rustchunker"
+version = "0.1.0"
+description = "A fast document chunking library for RAG pipelines"
+requires-python = ">=3.9"
+classifiers = [
+    "Programming Language :: Rust",
+    "Programming Language :: Python :: Implementation :: CPython",
+]
+
+[tool.maturin]
+python-source = "python"
+module-name = "rustchunker._rustchunker"
+features = ["pyo3/extension-module"]
