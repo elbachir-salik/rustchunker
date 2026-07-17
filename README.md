@@ -572,3 +572,53 @@ maturin develop --release
 python benchmarks/fetch_massive_corpus.py --count 100000
 python benchmarks/bench_massive_scaling.py --sizes 1000 10000 100000
 ```
+
+### How much of the win is the Rust core vs just using all cores?
+
+The result above compares rustchunker's parallel `chunk_files` against the
+other libraries in a sequential loop. That's the realistic default, but it
+mixes two effects — a faster core, and using every CPU core while the
+others use one. To separate them honestly, here is a 2×2 on 30,000
+documents: each library at **1 core** vs **all 12 cores**. rustchunker is
+pinned with `RAYON_NUM_THREADS`; the competitors are parallelized the only
+way a pure-Python splitter can be — a `multiprocessing.Pool` over the
+documents (process-spawn and per-worker import cost included, as in
+practice). Numbers are ranges over two runs; this machine is noisy.
+
+| Library | 1 core | 12 cores | Parallel self-speedup |
+|---|---|---|---|
+| rustchunker | 15–20s | 1.7–2.4s | **8–9x** |
+| semantic-text-splitter | 28–34s | 4.8–6.8s | 5–6x |
+| chonkie | 28–36s | 7.2–8.9s | ~4x |
+| LangChain | ~20s | 7.1–7.8s | ~2.7x |
+| LlamaIndex | 43–45s | 19–22s | ~2x |
+
+**The honest takeaways:**
+
+1. **Per core, rustchunker's lead is modest — roughly even with LangChain,
+   and ~1.4–2.8x over the others.** The 7–12x from the previous section is
+   *not* mostly "Rust is 10x faster at splitting text." At a single core,
+   rustchunker chunks 30k documents in about the same time LangChain's
+   `RecursiveCharacterTextSplitter` does. Its own `sentence` strategy does
+   real Unicode-correct sentence-boundary work, which isn't free.
+
+2. **rustchunker's decisive advantage is that it parallelizes cheaply.**
+   It scales ~8–9x on 12 cores; the pure-Python libraries only reach ~2–3x
+   even *with* multiprocessing, because their sole route to parallelism
+   pays process-spawn, per-worker re-import, and IPC overhead on every run.
+   rustchunker uses in-process native threads (`rayon`) with the GIL
+   released — no spawn, no re-import, no serialization. That efficiency, not
+   raw per-character speed, is where the order-of-magnitude comes from.
+
+3. **At an equal all-core budget, rustchunker is still ~2–11x faster**
+   (~3–5x vs LangChain/chonkie, ~2–4x vs semantic-text-splitter, ~9–11x vs
+   LlamaIndex) — a real, defensible advantage, now correctly attributed to
+   efficient parallelism plus a modestly faster core, rather than to the
+   core alone.
+
+![1 core vs all cores, per library](benchmarks/bench_massive_parallelism.png)
+
+Reproduce with:
+```
+python benchmarks/bench_massive_parallelism.py --size 30000
+```
