@@ -497,3 +497,29 @@ No single-threaded regression from any of these (real-document time held at
 ~0.10–0.14s, peak RSS ~26MB, both within noise of before); the point is
 correct concurrency behavior and lower transient allocation, not a headline
 speed number.
+
+## API notes
+
+**`Chunk` fields.** `text`, `start`, `end`, `index`, and `metadata`. Chunks
+are immutable (frozen) and only produced by `chunk()`/`chunk_files()`.
+- `start`/`end` are **character** offsets into the source document, so
+  `source[chunk.start:chunk.end] == chunk.text` holds even for non-ASCII
+  text.
+- `index` is the chunk's position **within its own source document**
+  (0-based). `chunk_files()` returns one flat list concatenating every
+  file's chunks, so `index` **restarts at 0 at each file boundary** and is
+  not the position in the returned list. To distinguish chunks of different
+  files, use `metadata["source_file"]`; for the count within a single file,
+  use `metadata["total_chunks"]`.
+- `metadata` keys: `source_file` (str, or `None` for `chunk()` on a raw
+  string), `page_number` (`None` for now), `total_chunks` (int, within that
+  file), `strategy_used` (str).
+
+**`chunk_files(paths, ...)`** accepts `str` or any `os.PathLike` (e.g.
+`pathlib.Path`, so `list(Path("docs").glob("*.md"))` works directly).
+Supported extensions: `.txt`, `.md`, `.markdown`, `.html`, `.htm`; anything
+else raises `ValueError`, and an unreadable/missing file raises `OSError`.
+
+**Validation.** `max_tokens` must be > 0 and `overlap` must be < `max_tokens`
+(both raise `ValueError`); an unknown `strategy` raises `NotImplementedError`.
+Empty or whitespace-only input returns an empty list.
