@@ -33,23 +33,63 @@ pub fn count_tokens(text: &str) -> usize {
 /// (accented letters, smart quotes, CJK, emoji). This must be the only
 /// place that conversion happens, right at the Python-facing boundary.
 ///
-/// Built once per document (a single pass over `char_indices()`) and
-/// binary-searched per offset, so converting many chunk boundaries stays
+/// For ASCII text -- the overwhelmingly common case -- byte offset equals
+/// char offset, so no table is built and `convert` is the identity. This
+/// avoids allocating one `usize` per character of the whole document (tens
+/// of MB on a large file) just to convert a few hundred chunk boundaries.
+///
+/// For non-ASCII text the table of char-boundary byte offsets is built once
+/// and binary-searched per offset, so converting many boundaries stays
 /// O(n log n) rather than re-scanning from the start for each one.
-pub struct ByteToChar {
-    char_boundary_bytes: Vec<usize>,
+pub enum ByteToChar {
+    /// byte offset == char offset for every position; nothing to store.
+    Ascii,
+    /// Sorted byte offsets of each character boundary.
+    Utf8(Vec<usize>),
 }
 
 impl ByteToChar {
     pub fn new(text: &str) -> Self {
-        Self {
-            char_boundary_bytes: text.char_indices().map(|(b, _)| b).collect(),
+        if text.is_ascii() {
+            ByteToChar::Ascii
+        } else {
+            ByteToChar::Utf8(text.char_indices().map(|(b, _)| b).collect())
         }
     }
 
     /// `byte_offset` must be a valid char boundary (start of some character,
     /// or the text's total byte length for an end-of-string offset).
     pub fn convert(&self, byte_offset: usize) -> usize {
-        self.char_boundary_bytes.partition_point(|&b| b < byte_offset)
+        match self {
+            ByteToChar::Ascii => byte_offset,
+            ByteToChar::Utf8(boundaries) => boundaries.partition_point(|&b| b < byte_offset),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ascii_offsets_are_identity() {
+        let text = "hello world";
+        let b2c = ByteToChar::new(text);
+        assert!(matches!(b2c, ByteToChar::Ascii));
+        for i in 0..=text.len() {
+            assert_eq!(b2c.convert(i), i);
+        }
+    }
+
+    #[test]
+    fn non_ascii_offsets_map_bytes_to_chars() {
+        // "café" -> 'c'(0) 'a'(1) 'f'(2) 'é'(3, 2 bytes at byte 3..5), len 5 bytes / 4 chars
+        let text = "café";
+        assert_eq!(text.len(), 5);
+        let b2c = ByteToChar::new(text);
+        assert!(matches!(b2c, ByteToChar::Utf8(_)));
+        assert_eq!(b2c.convert(0), 0); // 'c'
+        assert_eq!(b2c.convert(3), 3); // 'é' start
+        assert_eq!(b2c.convert(5), 4); // end of string -> char count
     }
 }
