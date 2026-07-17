@@ -6,11 +6,22 @@ build-backend = "maturin"
 name = "rustchunker"
 version = "0.1.0"
 description = "A fast document chunking library for RAG pipelines"
+readme = "README.md"
 requires-python = ">=3.9"
+license = { text = "MIT OR Apache-2.0" }
+authors = [{ name = "Salik Elbachir", email = "salik.elbachir@gmail.com" }]
+keywords = ["rag", "chunking", "text-splitter", "nlp", "embeddings", "rust"]
 classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Topic :: Text Processing :: Linguistic",
     "Programming Language :: Rust",
     "Programming Language :: Python :: Implementation :: CPython",
+    "Programming Language :: Python :: 3",
 ]
+
+[project.urls]
+Repository = "https://github.com/salik-elbachir/rustchunker"
 
 [tool.maturin]
 python-source = "python"
