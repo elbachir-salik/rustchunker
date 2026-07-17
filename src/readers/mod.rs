@@ -1,10 +1,16 @@
+use std::borrow::Cow;
+
 pub mod html;
 pub mod markdown;
 pub mod text;
 
 /// Extracts plain, chunkable text from a file's raw contents.
+///
+/// Returns `Cow` so a reader whose extraction is the identity (plain text)
+/// can borrow the input with zero allocation, while readers that transform
+/// the input (markdown/HTML stripping) return an owned `String`.
 pub trait Reader {
-    fn extract(&self, raw: &str) -> String;
+    fn extract<'a>(&self, raw: &'a str) -> Cow<'a, str>;
 }
 
 /// Picks a reader based on a file's extension (case-insensitive).

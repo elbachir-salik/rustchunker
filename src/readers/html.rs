@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use scraper::Html;
 
 use super::Reader;
@@ -5,18 +7,20 @@ use super::Reader;
 pub struct HtmlReader;
 
 impl Reader for HtmlReader {
-    fn extract(&self, raw: &str) -> String {
+    fn extract<'a>(&self, raw: &'a str) -> Cow<'a, str> {
         // scraper's DOM traversal yields <script>/<style> content as plain
         // text nodes like any other element, so it must be stripped before
         // parsing or it ends up embedded in the chunked output.
         let cleaned = strip_tag_block(raw, "script");
         let cleaned = strip_tag_block(&cleaned, "style");
         let document = Html::parse_document(&cleaned);
-        document
-            .root_element()
-            .text()
-            .collect::<Vec<_>>()
-            .join(" ")
+        Cow::Owned(
+            document
+                .root_element()
+                .text()
+                .collect::<Vec<_>>()
+                .join(" "),
+        )
     }
 }
 

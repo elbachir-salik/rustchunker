@@ -1,10 +1,12 @@
+use std::borrow::Cow;
+
 use super::Reader;
 
 pub struct MarkdownReader;
 
 impl Reader for MarkdownReader {
-    fn extract(&self, raw: &str) -> String {
-        strip_markdown(raw)
+    fn extract<'a>(&self, raw: &'a str) -> Cow<'a, str> {
+        Cow::Owned(strip_markdown(raw))
     }
 }
 
