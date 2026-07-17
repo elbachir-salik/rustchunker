@@ -13,4 +13,6 @@ benchmarks/data/
 benchmarks/data_scaling/
 benchmarks/data_large/
 benchmarks/real_data/
+benchmarks/massive_data/
+benchmarks/*.json
 SKILL.md

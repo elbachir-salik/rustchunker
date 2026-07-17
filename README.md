@@ -523,3 +523,52 @@ else raises `ValueError`, and an unreadable/missing file raises `OSError`.
 **Validation.** `max_tokens` must be > 0 and `overlap` must be < `max_tokens`
 (both raise `ValueError`); an unknown `strategy` raises `NotImplementedError`.
 Empty or whitespace-only input returns an empty list.
+
+## Massive-scale real corpus (up to 100,000 documents)
+
+The earlier real-document section used only 8 files. This one scales to
+**100,000 unique, full-length real documents** — news articles streamed
+from the HuggingFace `cc_news` dataset (median ~471 words each, so every
+document produces several chunks of genuine work, not a single trivial
+one). All libraries, all release builds, `sentence` strategy,
+`max_tokens=256`, `overlap=20`.
+
+Time to chunk the whole corpus at each size:
+
+| Library | 1,000 docs | 10,000 docs | 100,000 docs | vs rustchunker @100k |
+|---|---|---|---|---|
+| **rustchunker** | **0.06s** | **0.80s** | **12.7s** | 1x |
+| semantic-text-splitter | 0.56s | 7.48s | 90.6s | 7.1x slower |
+| chonkie | 0.57s | 9.27s | 108.7s | 8.6x slower |
+| LangChain | 0.61s | 7.99s | 113.5s | 8.9x slower |
+| LlamaIndex | 0.70s | 12.45s | 158.4s | 12.5x slower |
+
+At 100k documents rustchunker chunks the entire corpus (~239k chunks) in
+**~13 seconds**; the next-fastest library takes **1.5 minutes**, and
+LlamaIndex takes **2.6 minutes**. Normalizing by output — chunks produced
+per second, which is fair across sizes even as document lengths vary —
+rustchunker holds **~17,000–24,000 chunks/s at every scale**, while the
+others stay flat at **~1,400–2,560 chunks/s**. The gap is stable-to-widening
+as the corpus grows, not an artifact of a particular size.
+
+![Massive-scale scaling across libraries](benchmarks/bench_massive_scaling.png)
+
+**Why the gap is this large, stated plainly:** rustchunker is the only
+library here with a parallel batch API (`chunk_files`), so it uses all CPU
+cores; the others expose only per-text splitting and are driven in a
+sequential Python loop — which is how they are actually used, since none
+ships a parallel multi-file interface. So this measures realistic
+end-to-end throughput for "chunk a large corpus," not just raw
+single-document algorithm speed (that narrower comparison is the
+"Comparison against more chunking libraries" section above). Chunk counts
+differ slightly between libraries (~220k–239k) because each splits somewhat
+differently; the work is equivalent, not identical.
+
+Reproduce with (the 100k run takes a few minutes, mostly the sequential
+libraries — run it in the background):
+```
+pip install -r benchmarks/requirements-extra.txt -r benchmarks/requirements-massive.txt
+maturin develop --release
+python benchmarks/fetch_massive_corpus.py --count 100000
+python benchmarks/bench_massive_scaling.py --sizes 1000 10000 100000
+```
