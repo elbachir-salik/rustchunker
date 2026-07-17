@@ -22,6 +22,13 @@ fn ends_with_abbreviation(sentence: &str) -> bool {
 /// Unicode sentence boundaries, merged back across known abbreviations so
 /// e.g. "Dr. Smith is here." is one sentence, not two.
 ///
+/// Limitation: the merge is unconditional and English-only. A genuine
+/// sentence that ends on a listed abbreviation followed by another sentence
+/// ("I moved to the U.S. It is large.") is incorrectly merged into one --
+/// the classic sentence-boundary-disambiguation ambiguity. The list also
+/// only covers common English abbreviations and is case-sensitive. This
+/// trades rare false-merges for the far more common correct-merge case.
+///
 /// pub(crate) so lib.rs can expose it as an internal, benchmark-only
 /// ground-truth oracle (see `sentence_boundaries`) for checking whether
 /// other chunking libraries' chunk boundaries land on real sentence ends.
@@ -77,6 +84,15 @@ impl Strategy for SentenceStrategy {
         for (start, end) in sentence_spans(text) {
             let sentence_tokens = count_tokens(&text[start..end]);
 
+            // Whitespace-only segments (e.g. leading whitespace, or an
+            // all-whitespace document) carry no content and no tokens --
+            // skip them so they don't become empty chunks. This also keeps
+            // the sentence strategy consistent with the fixed strategy,
+            // which drops whitespace-only input entirely.
+            if sentence_tokens == 0 {
+                continue;
+            }
+
             if sentence_tokens > max_tokens {
                 // A single sentence alone exceeds max_tokens: flush what we
                 // have, then hard-split this sentence by tokens so the
@@ -119,6 +135,12 @@ mod tests {
         let text = "Dr. Smith is here. He is a doctor.";
         let spans = SentenceStrategy.split(text, 100);
         assert_eq!(slices(text, &spans), vec!["Dr. Smith is here. He is a doctor."]);
+    }
+
+    #[test]
+    fn whitespace_only_input_yields_no_chunks() {
+        assert_eq!(SentenceStrategy.split("   \n\t  ", 5), Vec::<(usize, usize)>::new());
+        assert_eq!(SentenceStrategy.split("", 5), Vec::<(usize, usize)>::new());
     }
 
     #[test]
@@ -177,56 +199,5 @@ mod tests {
         let spans = SentenceStrategy.split(text, 3);
         let result = slices(text, &spans);
         assert_eq!(result, vec!["one two three", "four five six", "seven eight."]);
-    }
-}
-
-#[cfg(test)]
-mod profile {
-    use super::*;
-    use std::time::Instant;
-
-    const WORDS: &[&str] = &[
-        "the", "quick", "brown", "fox", "jumps", "over", "lazy", "dog", "sun", "sets", "slowly",
-        "mountains", "travelers", "journey", "forest", "researchers", "systems", "networks",
-    ];
-
-    fn make_doc(n_sentences: usize) -> String {
-        let mut s = String::new();
-        for i in 0..n_sentences {
-            for w in 0..12 {
-                s.push_str(WORDS[(i * 12 + w) % WORDS.len()]);
-                s.push(' ');
-            }
-            s.push_str(". ");
-        }
-        s
-    }
-
-    // Diagnostic only. Run with:
-    // cargo test --release -p rustchunker -- --ignored --nocapture profile_sentence_spans_vs_full_split
-    #[test]
-    #[ignore]
-    fn profile_sentence_spans_vs_full_split() {
-        for n_sentences in [1000usize, 8000] {
-            let text = make_doc(n_sentences);
-            eprintln!("\n--- {} sentences ---", n_sentences);
-
-            let t0 = Instant::now();
-            let spans = sentence_spans(&text);
-            let t_spans = t0.elapsed();
-            eprintln!("sentence_spans (unicode-segmentation + abbrev merge): {:?}", t_spans);
-
-            let t1 = Instant::now();
-            let mut total_tokens = 0usize;
-            for &(s, e) in &spans {
-                total_tokens += count_tokens(&text[s..e]);
-            }
-            let t_counting = t1.elapsed();
-            eprintln!("sum of count_tokens over all sentences ({} tokens): {:?}", total_tokens, t_counting);
-
-            let t2 = Instant::now();
-            let _ = SentenceStrategy.split(&text, 236);
-            eprintln!("full SentenceStrategy.split:                          {:?}", t2.elapsed());
-        }
     }
 }
