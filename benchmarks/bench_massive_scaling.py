@@ -12,7 +12,6 @@ import glob
 import json
 import os
 import sys
-import time
 import traceback
 
 import matplotlib
@@ -42,7 +41,6 @@ def main():
     if max(args.sizes) > len(all_paths):
         print(f"NOTE: only {len(all_paths):,} files available; capping sizes to {sizes}.")
 
-    colors = {name: color for name, color, _ in LIBRARIES}
     results = []  # {library, size, seconds, chunks, docs_per_sec}
 
     # size-outer so the cheap sizes complete (and are saved) before the
