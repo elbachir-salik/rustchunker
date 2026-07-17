@@ -2,6 +2,10 @@
 name = "rustchunker"
 version = "0.1.0"
 edition = "2021"
+description = "A fast document chunking library for RAG pipelines"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/salik-elbachir/rustchunker"
+readme = "README.md"
 
 [lib]
 name = "_rustchunker"
@@ -13,3 +17,14 @@ pyo3 = { version = "0.29", features = ["extension-module", "abi3-py39"] }
 unicode-segmentation = "~1.12"
 rayon = "1"
 scraper = "0.20"
+
+# The shipped wheel is always built --release. LTO + a single codegen unit
+# give the optimizer whole-crate visibility (measurably helps the chunking
+# hot paths); strip drops debug symbols to keep the wheel small. panic is
+# left as the default "unwind" on purpose -- PyO3 catches Rust panics at the
+# FFI boundary and turns them into Python exceptions; panic="abort" would
+# instead kill the whole Python process.
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true
