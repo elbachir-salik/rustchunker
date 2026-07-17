@@ -61,3 +61,31 @@ def test_chunk_files_plain_chunk_has_no_source_file():
     result = chunk("hello world this is a test", max_tokens=3)
     assert result[0].metadata["source_file"] is None
     assert result[0].metadata["strategy_used"] == "fixed"
+
+
+def test_chunk_files_accepts_pathlib_path():
+    from pathlib import Path
+
+    # pathlib.Path (os.PathLike), not str -- must be accepted.
+    paths = [Path(fixture_path("sample.txt")), Path(fixture_path("sample.md"))]
+    result = chunk_files(paths, max_tokens=8)
+    assert len(result) > 0
+    # source_file comes back as the string form of each path.
+    assert {c.metadata["source_file"] for c in result} == {str(p) for p in paths}
+
+
+def test_chunk_files_empty_path_list_returns_no_chunks():
+    assert chunk_files([], max_tokens=8) == []
+
+
+def test_chunk_files_index_is_per_file_not_global():
+    # index restarts at 0 for each file; the flat list therefore repeats
+    # index values across files. Documented behavior -- lock it in.
+    paths = [fixture_path("sample.txt"), fixture_path("sample.md")]
+    result = chunk_files(paths, max_tokens=5, strategy="sentence")
+    by_file = {}
+    for c in result:
+        by_file.setdefault(c.metadata["source_file"], []).append(c.index)
+    assert len(by_file) == 2
+    for indices in by_file.values():
+        assert indices == list(range(len(indices)))  # each file: 0,1,2,...
