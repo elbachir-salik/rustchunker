@@ -465,3 +465,35 @@ span several runs); the shape and ordering are stable. Reproduce any of
 them by adding `maturin develop --release` before the reproduce commands in
 the corresponding section above, and pointing `--out` at a `*_release.png`
 filename.
+
+## Concurrency and allocation improvements
+
+A code review after the benchmarking above led to three changes that don't
+move the single-threaded numbers much but matter for how the library
+behaves in real applications:
+
+- **The GIL is now released during chunking.** `chunk()` and `chunk_files()`
+  wrap their pure-Rust work in `Python::detach`, so while rustchunker is
+  parsing and chunking (including the parallel `chunk_files` rayon section),
+  **other Python threads keep running**. Previously the GIL was held for the
+  entire call, so a web server or worker calling `chunk_files` would stall
+  every other thread in the process for the duration. Verified with a
+  threaded test: with a background thread continuously chunking, the main
+  Python thread retains ~60–65% of its normal throughput (it was starved to
+  near zero before), and 8 threads chunking concurrently all return
+  identical, correct results.
+- **No per-character allocation table for ASCII text.** The byte→character
+  offset conversion (needed so `Chunk.start/end` match Python's string
+  indexing) built a lookup entry for every character in the document — tens
+  of MB on a large file — even for pure-ASCII input where byte and character
+  offsets are identical. It now skips the table entirely for ASCII (the
+  common case) and is the identity function.
+- **Plain-text files are no longer copied.** The `.txt` reader used to clone
+  the entire file contents; it now borrows them (`Cow::Borrowed`), since
+  plain text needs no transformation. Markdown/HTML readers, which do
+  transform, still return owned strings.
+
+No single-threaded regression from any of these (real-document time held at
+~0.10–0.14s, peak RSS ~26MB, both within noise of before); the point is
+correct concurrency behavior and lower transient allocation, not a headline
+speed number.
