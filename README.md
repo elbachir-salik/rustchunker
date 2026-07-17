@@ -10,6 +10,25 @@ LlamaIndex's `SentenceSplitter`) are single-threaded and slow at scale.
 rustchunker does the same job faster by running the actual chunking logic
 in Rust, with parallel multi-file processing via `rayon`.
 
+## Building for benchmarks (read before reproducing any numbers)
+
+**Always build with `--release` when measuring performance:**
+```
+maturin develop --release      # editable install, optimized
+# or, for a wheel: maturin build --release
+```
+A plain `maturin develop` builds *unoptimized* (debug) Rust, roughly 3x
+slower, and is only appropriate for correctness/logic testing. The wheel
+you `pip install` from PyPI is always release-optimized.
+
+Every "Reproduce with" block below omits `--release` for brevity — prefix
+your build with it. Note that the **original benchmark sections
+(`## Benchmarks` through `## Chunk boundary correctness`) were measured on a
+debug build** and understate rustchunker; they're kept as-is for
+historical comparison. The corrected release-build numbers are in
+**"Real-world documents, revisited"** and **"All benchmarks, re-run in
+release build"** near the end.
+
 ## Benchmarks
 
 Measured on this machine (12 cores), 1000 synthetic documents, `sentence`
