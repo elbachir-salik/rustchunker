@@ -13,6 +13,10 @@ pub trait Reader {
     fn extract<'a>(&self, raw: &'a str) -> Cow<'a, str>;
 }
 
+/// Human-readable list of accepted file extensions, kept next to
+/// `reader_for_extension` so the two can't drift apart in error messages.
+pub const SUPPORTED_EXTENSIONS: &str = ".txt, .md, .markdown, .html, .htm";
+
 /// Picks a reader based on a file's extension (case-insensitive).
 /// Returns `None` for unrecognized extensions so callers can fail loudly
 /// instead of silently mistreating, e.g., a `.pdf` as plain text.

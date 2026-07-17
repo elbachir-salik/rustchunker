@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use pyo3::exceptions::{PyIOError, PyNotImplementedError, PyValueError};
 use pyo3::prelude::*;
@@ -137,27 +137,29 @@ pub fn chunk_text(
 }
 
 fn read_and_chunk_file(
-    path: &str,
+    path: &Path,
     max_tokens: usize,
     overlap: usize,
     strategy: &str,
 ) -> PyResult<Vec<RawChunk>> {
-    let extension = Path::new(path)
-        .extension()
-        .and_then(|e| e.to_str())
-        .ok_or_else(|| {
-            PyValueError::new_err(format!("file '{}' has no recognizable extension", path))
-        })?;
+    let extension = path.extension().and_then(|e| e.to_str()).ok_or_else(|| {
+        PyValueError::new_err(format!(
+            "file '{}' has no recognizable extension",
+            path.display()
+        ))
+    })?;
 
     let reader = reader_for_extension(extension).ok_or_else(|| {
         PyValueError::new_err(format!(
-            "unsupported file extension '.{}' for '{}'; supported: .txt, .md, .html",
-            extension, path
+            "unsupported file extension '.{}' for '{}'; supported: {}",
+            extension,
+            path.display(),
+            crate::readers::SUPPORTED_EXTENSIONS,
         ))
     })?;
 
     let raw_contents = std::fs::read_to_string(path)
-        .map_err(|e| PyIOError::new_err(format!("failed to read '{}': {}", path, e)))?;
+        .map_err(|e| PyIOError::new_err(format!("failed to read '{}': {}", path.display(), e)))?;
 
     let text = reader.extract(&raw_contents);
     chunk_core(&text, max_tokens, overlap, strategy)
@@ -169,7 +171,7 @@ fn read_and_chunk_file(
 /// constructed afterward, back on the calling thread.
 pub fn chunk_files(
     py: Python<'_>,
-    paths: &[String],
+    paths: &[PathBuf],
     max_tokens: usize,
     overlap: usize,
     strategy: &str,
@@ -179,10 +181,10 @@ pub fn chunk_files(
     // pure-Rust data (RawChunk) is produced here; the Python Chunk objects
     // (which need the GIL for their metadata dict) are built afterward, on
     // the calling thread with the GIL re-held.
-    let per_file: Vec<(&String, Vec<RawChunk>)> = py.detach(|| {
+    let per_file: Vec<(&PathBuf, Vec<RawChunk>)> = py.detach(|| {
         paths
             .par_iter()
-            .map(|path| -> PyResult<(&String, Vec<RawChunk>)> {
+            .map(|path| -> PyResult<(&PathBuf, Vec<RawChunk>)> {
                 let raws = read_and_chunk_file(path, max_tokens, overlap, strategy)?;
                 Ok((path, raws))
             })
@@ -192,64 +194,12 @@ pub fn chunk_files(
     let mut chunks = Vec::with_capacity(per_file.iter().map(|(_, raws)| raws.len()).sum());
     for (path, raws) in per_file {
         let total_chunks = raws.len();
+        // Non-UTF-8 paths (rare) can't be represented as a Python str here,
+        // so source_file is left as None rather than lossily mangled.
+        let source_file = path.to_str();
         for raw in raws {
-            chunks.push(build_chunk(py, raw, Some(path), total_chunks, strategy)?);
+            chunks.push(build_chunk(py, raw, source_file, total_chunks, strategy)?);
         }
     }
     Ok(chunks)
-}
-
-#[cfg(test)]
-mod profile {
-    use super::*;
-    use std::time::Instant;
-
-    const WORDS: &[&str] = &[
-        "the", "quick", "brown", "fox", "jumps", "over", "lazy", "dog", "sun", "sets", "slowly",
-        "mountains", "travelers", "journey", "forest", "researchers", "systems", "networks",
-    ];
-
-    fn make_doc(n_sentences: usize) -> String {
-        let mut s = String::new();
-        for i in 0..n_sentences {
-            for w in 0..12 {
-                s.push_str(WORDS[(i * 12 + w) % WORDS.len()]);
-                s.push(' ');
-            }
-            s.push_str(". ");
-        }
-        s
-    }
-
-    // Diagnostic only -- not part of the regular test suite. Run with:
-    // cargo test --release -- --ignored --nocapture profile_chunk_core_phases
-    #[test]
-    #[ignore]
-    fn profile_chunk_core_phases() {
-        for n_sentences in [150usize, 1000, 8000] {
-            let text = make_doc(n_sentences);
-            eprintln!("\n--- {} sentences (~{} words) ---", n_sentences, n_sentences * 12);
-
-            let t0 = Instant::now();
-            let token_spans = tokenize_spans(&text);
-            eprintln!("tokenize_spans:        {:?}", t0.elapsed());
-
-            let t1 = Instant::now();
-            let sentence_spans = SentenceStrategy.split(&text, 236);
-            eprintln!("SentenceStrategy.split: {:?}", t1.elapsed());
-
-            let t2 = Instant::now();
-            let overlapped = apply_overlap(&token_spans, &sentence_spans, 20);
-            eprintln!("apply_overlap:         {:?}", t2.elapsed());
-
-            let t3 = Instant::now();
-            let _strings: Vec<String> =
-                overlapped.iter().map(|&(s, e)| text[s..e].to_string()).collect();
-            eprintln!("to_string() alloc:     {:?}", t3.elapsed());
-
-            let t4 = Instant::now();
-            let _ = chunk_core(&text, 256, 20, "sentence").unwrap();
-            eprintln!("end-to-end chunk_core: {:?}", t4.elapsed());
-        }
-    }
 }

@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use pyo3::prelude::*;
 
 mod chunker;
@@ -6,7 +8,21 @@ mod readers;
 mod strategies;
 mod tokenizer;
 
-#[pyclass]
+/// A single chunk of a document. Produced only by `chunk()` and
+/// `chunk_files()` -- not constructible directly from Python.
+///
+/// `start`/`end` are character offsets into the *source document*
+/// (`text == source[start:end]` in Python, including for non-ASCII text).
+///
+/// `index` is the chunk's position *within its own source document*
+/// (0-based). For `chunk_files`, the returned list concatenates the chunks
+/// of every file, so `index` restarts at 0 at each file boundary and is NOT
+/// the position in the returned list -- use `metadata["source_file"]` to
+/// tell chunks of different files apart, and `metadata["total_chunks"]` for
+/// the count within that one file.
+///
+/// `frozen`: chunks are immutable outputs, so this is read-only from Python.
+#[pyclass(frozen)]
 pub struct Chunk {
     #[pyo3(get)]
     pub text: String,
@@ -46,7 +62,9 @@ fn chunk(
 #[pyo3(signature = (paths, max_tokens, overlap=0, strategy="fixed".to_string()))]
 fn chunk_files(
     py: Python<'_>,
-    paths: Vec<String>,
+    // Vec<PathBuf> so callers can pass str or any os.PathLike (e.g. the
+    // pathlib.Path objects returned by Path.glob), not just plain strings.
+    paths: Vec<PathBuf>,
     max_tokens: usize,
     overlap: usize,
     strategy: String,
