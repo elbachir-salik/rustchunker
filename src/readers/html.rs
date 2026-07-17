@@ -14,13 +14,7 @@ impl Reader for HtmlReader {
         let cleaned = strip_tag_block(raw, "script");
         let cleaned = strip_tag_block(&cleaned, "style");
         let document = Html::parse_document(&cleaned);
-        Cow::Owned(
-            document
-                .root_element()
-                .text()
-                .collect::<Vec<_>>()
-                .join(" "),
-        )
+        Cow::Owned(document.root_element().text().collect::<Vec<_>>().join(" "))
     }
 }
 
@@ -43,8 +37,7 @@ fn find_ci(haystack: &str, needle: &str) -> Option<usize> {
     if n.is_empty() || h.len() < n.len() {
         return None;
     }
-    (0..=h.len() - n.len())
-        .find(|&i| h[i..i + n.len()].eq_ignore_ascii_case(n))
+    (0..=h.len() - n.len()).find(|&i| h[i..i + n.len()].eq_ignore_ascii_case(n))
 }
 
 fn strip_tag_block(html: &str, tag: &str) -> String {

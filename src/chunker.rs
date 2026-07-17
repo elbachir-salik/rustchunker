@@ -26,7 +26,12 @@ struct RawChunk {
 
 /// Splits `text` into chunk boundaries per `strategy`, with overlap folded
 /// in. No Python types involved — safe to call from any thread.
-fn chunk_core(text: &str, max_tokens: usize, overlap: usize, strategy: &str) -> PyResult<Vec<RawChunk>> {
+fn chunk_core(
+    text: &str,
+    max_tokens: usize,
+    overlap: usize,
+    strategy: &str,
+) -> PyResult<Vec<RawChunk>> {
     if max_tokens == 0 {
         return Err(PyValueError::new_err("max_tokens must be greater than 0"));
     }

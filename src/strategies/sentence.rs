@@ -15,7 +15,10 @@ const ABBREVIATIONS: &[&str] = &[
 
 fn ends_with_abbreviation(sentence: &str) -> bool {
     let trimmed = sentence.trim_end();
-    let last_word = trimmed.rsplit(char::is_whitespace).next().unwrap_or(trimmed);
+    let last_word = trimmed
+        .rsplit(char::is_whitespace)
+        .next()
+        .unwrap_or(trimmed);
     ABBREVIATIONS.contains(&last_word)
 }
 
@@ -134,12 +137,18 @@ mod tests {
     fn keeps_abbreviation_attached() {
         let text = "Dr. Smith is here. He is a doctor.";
         let spans = SentenceStrategy.split(text, 100);
-        assert_eq!(slices(text, &spans), vec!["Dr. Smith is here. He is a doctor."]);
+        assert_eq!(
+            slices(text, &spans),
+            vec!["Dr. Smith is here. He is a doctor."]
+        );
     }
 
     #[test]
     fn whitespace_only_input_yields_no_chunks() {
-        assert_eq!(SentenceStrategy.split("   \n\t  ", 5), Vec::<(usize, usize)>::new());
+        assert_eq!(
+            SentenceStrategy.split("   \n\t  ", 5),
+            Vec::<(usize, usize)>::new()
+        );
         assert_eq!(SentenceStrategy.split("", 5), Vec::<(usize, usize)>::new());
     }
 
@@ -190,7 +199,10 @@ mod tests {
     fn handles_acronym_like_usa() {
         let text = "I live in the U.S.A. It is nice.";
         let spans = SentenceStrategy.split(text, 100);
-        assert_eq!(slices(text, &spans), vec!["I live in the U.S.A. It is nice."]);
+        assert_eq!(
+            slices(text, &spans),
+            vec!["I live in the U.S.A. It is nice."]
+        );
     }
 
     #[test]
@@ -198,6 +210,9 @@ mod tests {
         let text = "one two three four five six seven eight.";
         let spans = SentenceStrategy.split(text, 3);
         let result = slices(text, &spans);
-        assert_eq!(result, vec!["one two three", "four five six", "seven eight."]);
+        assert_eq!(
+            result,
+            vec!["one two three", "four five six", "seven eight."]
+        );
     }
 }

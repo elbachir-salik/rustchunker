@@ -58,11 +58,13 @@ fn strip_links(text: &str) -> String {
         let matched = after_bracket.find(']').and_then(|close_bracket_rel| {
             let link_text = &after_bracket[..close_bracket_rel];
             let after_close_bracket = &after_bracket[close_bracket_rel + 1..];
-            after_close_bracket.strip_prefix('(').and_then(|after_paren| {
-                after_paren
-                    .find(')')
-                    .map(|close_paren_rel| (link_text, &after_paren[close_paren_rel + 1..]))
-            })
+            after_close_bracket
+                .strip_prefix('(')
+                .and_then(|after_paren| {
+                    after_paren
+                        .find(')')
+                        .map(|close_paren_rel| (link_text, &after_paren[close_paren_rel + 1..]))
+                })
         });
 
         match matched {
@@ -102,12 +104,18 @@ mod tests {
 
     #[test]
     fn strips_headers() {
-        assert_eq!(strip_markdown("# Title\n## Subtitle\nbody"), "Title\nSubtitle\nbody");
+        assert_eq!(
+            strip_markdown("# Title\n## Subtitle\nbody"),
+            "Title\nSubtitle\nbody"
+        );
     }
 
     #[test]
     fn strips_bold() {
-        assert_eq!(strip_markdown("this is **bold** and __also bold__"), "this is bold and also bold");
+        assert_eq!(
+            strip_markdown("this is **bold** and __also bold__"),
+            "this is bold and also bold"
+        );
     }
 
     #[test]
