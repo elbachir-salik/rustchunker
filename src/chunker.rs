@@ -126,7 +126,10 @@ pub fn chunk_text(
     overlap: usize,
     strategy: &str,
 ) -> PyResult<Vec<Chunk>> {
-    let raws = chunk_core(text, max_tokens, overlap, strategy)?;
+    // The chunking itself is pure Rust and can be CPU-heavy on a large
+    // document (Unicode sentence detection), so release the GIL for it and
+    // only re-acquire to build the Python Chunk objects.
+    let raws = py.detach(|| chunk_core(text, max_tokens, overlap, strategy))?;
     let total_chunks = raws.len();
     raws.into_iter()
         .map(|raw| build_chunk(py, raw, None, total_chunks, strategy))
@@ -171,13 +174,20 @@ pub fn chunk_files(
     overlap: usize,
     strategy: &str,
 ) -> PyResult<Vec<Chunk>> {
-    let per_file: Vec<(&String, Vec<RawChunk>)> = paths
-        .par_iter()
-        .map(|path| -> PyResult<(&String, Vec<RawChunk>)> {
-            let raws = read_and_chunk_file(path, max_tokens, overlap, strategy)?;
-            Ok((path, raws))
-        })
-        .collect::<PyResult<Vec<_>>>()?;
+    // Read + chunk every file in parallel with the GIL released, so other
+    // Python threads keep running during this CPU/IO-bound work. Only
+    // pure-Rust data (RawChunk) is produced here; the Python Chunk objects
+    // (which need the GIL for their metadata dict) are built afterward, on
+    // the calling thread with the GIL re-held.
+    let per_file: Vec<(&String, Vec<RawChunk>)> = py.detach(|| {
+        paths
+            .par_iter()
+            .map(|path| -> PyResult<(&String, Vec<RawChunk>)> {
+                let raws = read_and_chunk_file(path, max_tokens, overlap, strategy)?;
+                Ok((path, raws))
+            })
+            .collect::<PyResult<Vec<_>>>()
+    })?;
 
     let mut chunks = Vec::with_capacity(per_file.iter().map(|(_, raws)| raws.len()).sum());
     for (path, raws) in per_file {
