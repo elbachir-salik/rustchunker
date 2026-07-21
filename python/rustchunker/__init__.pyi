@@ -1,5 +1,5 @@
 from os import PathLike
-from typing import Union
+from typing import Literal, Union
 
 class Chunk:
     """A single chunk of a document (produced by chunk()/chunk_files(), not
@@ -19,23 +19,41 @@ class Chunk:
     start: int
     end: int
     index: int
-    # keys: source_file (str|None), page_number (None for now),
-    # total_chunks (int, within this file), strategy_used (str)
+    # keys: source_file (str | None -- None for non-UTF-8 paths and for
+    # chunk() on a raw string), total_chunks (int, within this file),
+    # strategy_used (str)
     metadata: dict[str, str | int | None]
 
-# strategy: one of "fixed", "sentence" (others raise NotImplementedError)
+# NOTE ON "tokens": a token here is a whitespace-delimited word, NOT a model
+# / BPE token (tiktoken, SentencePiece, ...). max_tokens caps the number of
+# whitespace words per chunk. Word count is only an approximation of an
+# embedding model's token budget (typically ~0.75x), so leave headroom if you
+# are sizing chunks against a hard model limit.
+#
+# strategy: "fixed" (every N words, exact) or "sentence" (splits on real
+# Unicode sentence boundaries, never exceeding max_tokens). Any other value
+# raises ValueError.
 def chunk(
     text: str,
     max_tokens: int,
     overlap: int = 0,
-    strategy: str = "fixed",
+    strategy: Literal["fixed", "sentence"] = "fixed",
 ) -> list[Chunk]: ...
 
 # paths accepts str or any os.PathLike (e.g. pathlib.Path).
-# supported extensions: .txt, .md, .markdown, .html, .htm (others raise ValueError)
+# supported extensions: .txt, .md, .markdown, .html, .htm.
+# Files must be UTF-8 (a leading BOM is stripped automatically).
+#
+# on_error controls what happens when a file can't be read or chunked
+# (unsupported extension, I/O error, invalid UTF-8):
+#   "raise" (default) -- the first failing file aborts the whole call
+#                        (raises ValueError / OSError).
+#   "skip"            -- failing files are omitted and the rest still return.
+# A bad max_tokens/overlap always raises, even under "skip".
 def chunk_files(
     paths: list[Union[str, PathLike[str]]],
     max_tokens: int,
     overlap: int = 0,
-    strategy: str = "fixed",
+    strategy: Literal["fixed", "sentence"] = "fixed",
+    on_error: Literal["raise", "skip"] = "raise",
 ) -> list[Chunk]: ...

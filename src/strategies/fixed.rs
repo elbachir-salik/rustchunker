@@ -14,6 +14,10 @@ impl Strategy for FixedStrategy {
 /// on hand (`chunker::chunk_core`, to avoid re-tokenizing the whole document
 /// again for overlap) can reuse them directly instead of retokenizing.
 pub fn group_token_spans(token_spans: &[(usize, usize)], max_tokens: usize) -> Vec<(usize, usize)> {
+    // slice::chunks(0) panics; callers reach here only after chunker.rs has
+    // validated max_tokens > 0, but assert it so a future caller that skips
+    // that guard fails a debug build loudly instead of panicking obscurely.
+    debug_assert!(max_tokens > 0, "group_token_spans requires max_tokens > 0");
     token_spans
         .chunks(max_tokens)
         .map(|group| (group.first().unwrap().0, group.last().unwrap().1))

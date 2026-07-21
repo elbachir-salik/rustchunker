@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use pyo3::exceptions::{PyIOError, PyNotImplementedError, PyValueError};
+use pyo3::exceptions::{PyIOError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 use rayon::prelude::*;
@@ -24,14 +24,12 @@ struct RawChunk {
     index: usize,
 }
 
-/// Splits `text` into chunk boundaries per `strategy`, with overlap folded
-/// in. No Python types involved — safe to call from any thread.
-fn chunk_core(
-    text: &str,
-    max_tokens: usize,
-    overlap: usize,
-    strategy: &str,
-) -> PyResult<Vec<RawChunk>> {
+/// Validates the numeric chunking parameters shared by every entry point.
+/// Split out so `chunk_files` can check them once, up front, before the
+/// parallel section -- otherwise a config error (e.g. max_tokens=0) raised
+/// per-file inside the loop would be silently swallowed under
+/// `on_error="skip"`, returning an empty list instead of failing loudly.
+fn validate_params(max_tokens: usize, overlap: usize) -> PyResult<()> {
     if max_tokens == 0 {
         return Err(PyValueError::new_err("max_tokens must be greater than 0"));
     }
@@ -40,6 +38,18 @@ fn chunk_core(
             "overlap must be smaller than max_tokens",
         ));
     }
+    Ok(())
+}
+
+/// Splits `text` into chunk boundaries per `strategy`, with overlap folded
+/// in. No Python types involved — safe to call from any thread.
+fn chunk_core(
+    text: &str,
+    max_tokens: usize,
+    overlap: usize,
+    strategy: &str,
+) -> PyResult<Vec<RawChunk>> {
+    validate_params(max_tokens, overlap)?;
 
     // Strategies group content into (max_tokens - overlap)-sized "core"
     // spans; apply_overlap then extends each span's start backward into the
@@ -64,8 +74,11 @@ fn chunk_core(
         "fixed" => group_token_spans(token_spans.as_ref().unwrap(), core_max_tokens),
         "sentence" => SentenceStrategy.split(text, core_max_tokens),
         other => {
-            return Err(PyNotImplementedError::new_err(format!(
-                "strategy '{}' is not implemented yet; only 'fixed' and 'sentence' are supported in this version",
+            // A bad strategy name is a caller error (typically a typo like
+            // "sentance"), so ValueError, not NotImplementedError -- the
+            // latter reads as "a real strategy that's merely unbuilt".
+            return Err(PyValueError::new_err(format!(
+                "unknown strategy '{}'; supported strategies are 'fixed' and 'sentence'",
                 other
             )))
         }
@@ -102,7 +115,6 @@ fn build_metadata(
 ) -> PyResult<Py<PyDict>> {
     let dict = PyDict::new(py);
     dict.set_item("source_file", source_file)?;
-    dict.set_item("page_number", py.None())?;
     dict.set_item("total_chunks", total_chunks)?;
     dict.set_item("strategy_used", strategy)?;
     Ok(dict.unbind())
@@ -166,7 +178,14 @@ fn read_and_chunk_file(
     let raw_contents = std::fs::read_to_string(path)
         .map_err(|e| PyIOError::new_err(format!("failed to read '{}': {}", path.display(), e)))?;
 
-    let text = reader.extract(&raw_contents);
+    // Strip a leading UTF-8 BOM (U+FEFF) if present. read_to_string keeps it
+    // as the first character, so without this it would leak into the first
+    // chunk's text -- common in Windows-authored .txt/.html files.
+    let raw_contents = raw_contents
+        .strip_prefix('\u{feff}')
+        .unwrap_or(&raw_contents);
+
+    let text = reader.extract(raw_contents);
     chunk_core(&text, max_tokens, overlap, strategy)
 }
 
@@ -180,20 +199,52 @@ pub fn chunk_files(
     max_tokens: usize,
     overlap: usize,
     strategy: &str,
+    on_error: &str,
 ) -> PyResult<Vec<Chunk>> {
+    // "raise" (default): the first file that fails aborts the whole call.
+    // "skip": files that can't be read/chunked (unsupported extension,
+    // I/O error, invalid UTF-8) are dropped and the rest still return --
+    // the sensible default for bulk corpus ingestion, where one bad file
+    // shouldn't discard 100k good ones.
+    let skip_errors = match on_error {
+        "raise" => false,
+        "skip" => true,
+        other => {
+            return Err(PyValueError::new_err(format!(
+                "unknown on_error '{}'; expected 'raise' or 'skip'",
+                other
+            )))
+        }
+    };
+    // Config errors (bad max_tokens/overlap) must fail loudly regardless of
+    // on_error, so check them once here instead of letting a per-file raise
+    // get swallowed by skip mode.
+    validate_params(max_tokens, overlap)?;
+
     // Read + chunk every file in parallel with the GIL released, so other
     // Python threads keep running during this CPU/IO-bound work. Only
     // pure-Rust data (RawChunk) is produced here; the Python Chunk objects
     // (which need the GIL for their metadata dict) are built afterward, on
     // the calling thread with the GIL re-held.
     let per_file: Vec<(&PathBuf, Vec<RawChunk>)> = py.detach(|| {
-        paths
-            .par_iter()
-            .map(|path| -> PyResult<(&PathBuf, Vec<RawChunk>)> {
-                let raws = read_and_chunk_file(path, max_tokens, overlap, strategy)?;
-                Ok((path, raws))
-            })
-            .collect::<PyResult<Vec<_>>>()
+        if skip_errors {
+            Ok(paths
+                .par_iter()
+                .filter_map(|path| {
+                    read_and_chunk_file(path, max_tokens, overlap, strategy)
+                        .ok()
+                        .map(|raws| (path, raws))
+                })
+                .collect())
+        } else {
+            paths
+                .par_iter()
+                .map(|path| -> PyResult<(&PathBuf, Vec<RawChunk>)> {
+                    let raws = read_and_chunk_file(path, max_tokens, overlap, strategy)?;
+                    Ok((path, raws))
+                })
+                .collect::<PyResult<Vec<_>>>()
+        }
     })?;
 
     let mut chunks = Vec::with_capacity(per_file.iter().map(|(_, raws)| raws.len()).sum());

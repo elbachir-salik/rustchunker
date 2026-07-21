@@ -59,7 +59,7 @@ fn chunk(
 }
 
 #[pyfunction]
-#[pyo3(signature = (paths, max_tokens, overlap=0, strategy="fixed".to_string()))]
+#[pyo3(signature = (paths, max_tokens, overlap=0, strategy="fixed".to_string(), on_error="raise".to_string()))]
 fn chunk_files(
     py: Python<'_>,
     // Vec<PathBuf> so callers can pass str or any os.PathLike (e.g. the
@@ -68,8 +68,9 @@ fn chunk_files(
     max_tokens: usize,
     overlap: usize,
     strategy: String,
+    on_error: String,
 ) -> PyResult<Vec<Chunk>> {
-    chunker::chunk_files(py, &paths, max_tokens, overlap, &strategy)
+    chunker::chunk_files(py, &paths, max_tokens, overlap, &strategy, &on_error)
 }
 
 /// Internal/unstable: exposes rustchunker's own Unicode sentence-boundary
