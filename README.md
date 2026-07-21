@@ -38,7 +38,7 @@ favour us → **[BENCHMARKS.md](BENCHMARKS.md)**.</sub>
 
 - **⚡ Built for scale** — ~17–24k chunks/sec, and it pulls *further* ahead as the corpus grows.
 - **🧵 Actually parallel** — `chunk_files` fans your whole corpus across every core with `rayon`, GIL released. Pure-Python libraries can't (they're stuck paying multiprocessing overhead).
-- **🎯 Never splits mid-sentence** — 100% clean sentence boundaries in testing, vs 6–99% for the others.
+- **🎯 Clean sentence boundaries** — the `sentence` strategy splits only on real Unicode sentence ends: 100% clean boundaries in testing, vs 6–99% for the others. *(With `overlap > 0`, chunk **heads** gain a few words of leading context that may begin mid-sentence — see [Strategies](#-strategies).)*
 - **🪶 Light** — low memory, and zero Python runtime dependencies.
 - **🔌 Drop-in** — `pip install`, two lines of code, fully typed.
 - **📄 Reads your files** — `.txt`, `.md`, and `.html` parsed and stripped for you.
@@ -64,8 +64,14 @@ chunks = chunk_files(
     max_tokens=256,
     overlap=20,
     strategy="sentence",
+    on_error="skip",   # drop unreadable files instead of aborting the batch
 )
 ```
+
+Files must be UTF-8 (a leading byte-order mark is stripped for you). By default
+`chunk_files` raises on the first file it can't read or parse; pass
+`on_error="skip"` to drop failing files and keep the rest — handy when ingesting
+a large, messy corpus where one bad file shouldn't sink the whole run.
 
 Each `Chunk` has `.text`, `.start` / `.end` (character offsets into the source
 document, so `source[c.start:c.end] == c.text`), `.index`, and `.metadata`
@@ -79,7 +85,15 @@ document, so `source[c.start:c.end] == c.text`), `.index`, and `.metadata`
 | `"sentence"` | splits on real sentence boundaries (Unicode-aware; keeps "Dr." and "U.S.A." intact), never exceeding `max_tokens` |
 
 `overlap` shares N trailing tokens between consecutive chunks — respecting word
-boundaries — so context isn't lost at the seams. *(More strategies on the way.)*
+boundaries — so context isn't lost at the seams. With the `sentence` strategy
+this leading context is taken at word granularity, so an overlapped chunk's
+head can begin part-way through a sentence (its interior boundaries stay
+clean). *(More strategies on the way.)*
+
+> **What "token" means here:** a token is a **whitespace-delimited word**, not
+> a model / BPE token (tiktoken, SentencePiece, …). `max_tokens` caps words per
+> chunk. Word count only approximates an embedder's token budget (roughly
+> ~0.75×), so leave headroom when sizing chunks against a hard model limit.
 
 ## 🎯 When to use it
 
