@@ -48,5 +48,5 @@ def test_sentence_strategy_splits_multiple_sentences():
 
 
 def test_unknown_strategy_raises():
-    with pytest.raises(NotImplementedError):
+    with pytest.raises(ValueError):
         chunk("some text", max_tokens=5, strategy="paragraph")

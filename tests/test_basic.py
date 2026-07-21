@@ -24,7 +24,8 @@ def test_chunk_applies_overlap():
 
 
 def test_chunk_rejects_unknown_strategy():
-    with pytest.raises(NotImplementedError):
+    # An unknown strategy is a caller error (typo), so ValueError.
+    with pytest.raises(ValueError):
         chunk("a b c", max_tokens=2, strategy="paragraph")
 
 
