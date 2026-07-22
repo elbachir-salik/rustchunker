@@ -4,6 +4,16 @@ All notable changes to this project are documented here. The format is based
 on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.1] - 2026-07-22
+
+Packaging-only release. No functional or API changes.
+
+### Added
+- Prebuilt wheels for **Linux** (x86_64, aarch64) and **macOS** (x86_64,
+  Apple Silicon), built and published via GitHub Actions. 1.0.0 shipped only a
+  Windows wheel (plus an sdist); non-Windows users no longer need a Rust
+  toolchain to `pip install rustchunker`.
+
 ## [1.0.0] - 2026-07-21
 
 First stable release. The public API — `chunk`, `chunk_files`, and the `Chunk`

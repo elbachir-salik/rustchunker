@@ -117,7 +117,7 @@ spawning processes.
 ## 🛠️ Building from source
 
 ```bash
-git clone https://github.com/salik-elbachir/rustchunker
+git clone https://github.com/elbachir-salik/rustchunker
 cd rustchunker
 maturin develop --release   # requires Rust + maturin; always use --release for real speed
 pytest

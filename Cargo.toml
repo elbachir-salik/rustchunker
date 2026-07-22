@@ -1,11 +1,11 @@
 [package]
 name = "rustchunker"
-version = "1.0.0"
+version = "1.0.1"
 edition = "2021"
 rust-version = "1.83"
 description = "A fast document chunking library for RAG pipelines"
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/salik-elbachir/rustchunker"
+repository = "https://github.com/elbachir-salik/rustchunker"
 readme = "README.md"
 
 [lib]
