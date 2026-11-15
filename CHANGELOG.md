@@ -4,6 +4,19 @@ All notable changes to this project are documented here. The format is based
 on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- Sentence overlap handles boundaries inside a whitespace token (such as
+  Chinese sentences without spaces) without panicking or losing content.
+- Invalid strategies raise before reading files, including with
+  `on_error="skip"` and empty file lists.
+
+### Added
+- Unicode content and offset invariants, invalid UTF-8 tests, and batch parity tests.
+- Release gates for Rust tests, Clippy, formatting, Python compatibility,
+  and installation from the source archive.
+
 ## [1.0.1] - 2026-07-22
 
 Packaging-only release. No functional or API changes.

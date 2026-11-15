@@ -58,3 +58,11 @@ def test_overlap_never_exceeds_max_tokens():
     text = "one two three four five six seven eight nine ten"
     for c in chunk(text, max_tokens=4, overlap=2):
         assert len(c.text.split()) <= 4
+
+
+def test_sentence_overlap_without_spaces():
+    text = "你好。世界。再见。"
+    result = chunk(text, max_tokens=2, overlap=1, strategy="sentence")
+    assert [c.text for c in result] == ["你好。", "你好。世界。", "世界。再见。"]
+    for c in result:
+        assert text[c.start : c.end] == c.text
