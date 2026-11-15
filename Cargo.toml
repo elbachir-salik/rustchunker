@@ -13,7 +13,8 @@ name = "_rustchunker"
 crate-type = ["cdylib"]
 
 [dependencies]
-pyo3 = { version = "0.29", features = ["extension-module", "abi3-py39"] }
+# Maturin enables extension-module; cargo test must link Python on Unix.
+pyo3 = { version = "0.29", features = ["abi3-py39"] }
 # pinned to 1.12.x: 1.13+ requires rustc 1.85, this toolchain is 1.83
 unicode-segmentation = "~1.12"
 rayon = "1"
