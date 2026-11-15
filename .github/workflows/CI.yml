@@ -179,14 +179,19 @@ jobs:
 
   python-compatibility:
     needs: [linux]
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        python: ["3.9", "3.x"]
+        include:
+          - python: "3.9"
+            os: ubuntu-22.04
+          - python: "3.x"
+            os: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
+        id: python
         with:
           python-version: ${{ matrix.python }}
       - uses: actions/download-artifact@v7
@@ -196,7 +201,7 @@ jobs:
       - uses: astral-sh/setup-uv@v7
       - name: Test the built wheel on the oldest and newest Python
         run: |
-          uv venv --python python .venv
+          uv venv --python "${{ steps.python.outputs.python-path }}" .venv
           source .venv/bin/activate
           uv pip install rustchunker --no-index --no-deps --no-build --find-links dist
           uv pip install pytest
@@ -207,6 +212,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
+        id: python
         with:
           python-version: "3.12"
       - uses: astral-sh/setup-uv@v7
@@ -217,7 +223,7 @@ jobs:
           args: --out dist
       - name: Build and test the source distribution
         run: |
-          uv venv --python python .venv
+          uv venv --python "${{ steps.python.outputs.python-path }}" .venv
           source .venv/bin/activate
           uv pip install pytest dist/*.tar.gz
           python -m pytest -q tests
