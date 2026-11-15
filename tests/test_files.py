@@ -135,3 +135,48 @@ def test_chunk_files_index_is_per_file_not_global():
     assert len(by_file) == 2
     for indices in by_file.values():
         assert indices == list(range(len(indices)))  # each file: 0,1,2,...
+
+
+@pytest.mark.parametrize("on_error", ["raise", "skip"])
+@pytest.mark.parametrize("names", [[], ["sample.txt"], ["does_not_exist.txt"]])
+def test_chunk_files_rejects_unknown_strategy_before_reading(names, on_error):
+    with pytest.raises(ValueError, match="unknown strategy"):
+        chunk_files(
+            [fixture_path(name) for name in names],
+            max_tokens=8,
+            strategy="sentance",
+            on_error=on_error,
+        )
+
+
+@pytest.mark.parametrize("on_error", ["raise", "skip"])
+def test_chunk_files_invalid_utf8(tmp_path, on_error):
+    bad = tmp_path / "invalid.txt"
+    bad.write_bytes(bytes([255, 254]))
+    good = fixture_path("sample.txt")
+    if on_error == "raise":
+        with pytest.raises(OSError):
+            chunk_files([good, bad], max_tokens=4, on_error=on_error)
+    else:
+        result = chunk_files([good, bad], max_tokens=4, on_error=on_error)
+        assert result
+        assert {c.metadata["source_file"] for c in result} == {good}
+
+
+@pytest.mark.parametrize("strategy", ["fixed", "sentence"])
+@pytest.mark.parametrize("overlap", [0, 1, 3])
+def test_chunk_files_matches_individual_documents(tmp_path, strategy, overlap):
+    from rustchunker import chunk
+
+    texts = ["你好。世界。再见。", "", "  café 🎉. Next sentence. More words here."]
+    paths = [tmp_path / f"document_{i}.txt" for i in range(len(texts))]
+    expected = []
+    for path, text in zip(paths, texts):
+        path.write_text(text, encoding="utf-8")
+        for c in chunk(text, max_tokens=4, overlap=overlap, strategy=strategy):
+            expected.append((
+                c.text, c.start, c.end, c.index,
+                {**c.metadata, "source_file": str(path)},
+            ))
+    result = chunk_files(paths, max_tokens=4, overlap=overlap, strategy=strategy)
+    assert [(c.text, c.start, c.end, c.index, c.metadata) for c in result] == expected

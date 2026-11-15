@@ -49,7 +49,7 @@ def chunk(
 #   "raise" (default) -- the first failing file aborts the whole call
 #                        (raises ValueError / OSError).
 #   "skip"            -- failing files are omitted and the rest still return.
-# A bad max_tokens/overlap always raises, even under "skip".
+# A bad max_tokens/overlap/strategy always raises, even under "skip".
 def chunk_files(
     paths: list[Union[str, PathLike[str]]],
     max_tokens: int,

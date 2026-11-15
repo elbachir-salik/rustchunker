@@ -24,12 +24,12 @@ struct RawChunk {
     index: usize,
 }
 
-/// Validates the numeric chunking parameters shared by every entry point.
+/// Validates the chunking parameters shared by every entry point.
 /// Split out so `chunk_files` can check them once, up front, before the
 /// parallel section -- otherwise a config error (e.g. max_tokens=0) raised
 /// per-file inside the loop would be silently swallowed under
 /// `on_error="skip"`, returning an empty list instead of failing loudly.
-fn validate_params(max_tokens: usize, overlap: usize) -> PyResult<()> {
+fn validate_params(max_tokens: usize, overlap: usize, strategy: &str) -> PyResult<()> {
     if max_tokens == 0 {
         return Err(PyValueError::new_err("max_tokens must be greater than 0"));
     }
@@ -37,6 +37,12 @@ fn validate_params(max_tokens: usize, overlap: usize) -> PyResult<()> {
         return Err(PyValueError::new_err(
             "overlap must be smaller than max_tokens",
         ));
+    }
+    if !matches!(strategy, "fixed" | "sentence") {
+        return Err(PyValueError::new_err(format!(
+            "unknown strategy '{}'; supported strategies are 'fixed' and 'sentence'",
+            strategy
+        )));
     }
     Ok(())
 }
@@ -49,7 +55,7 @@ fn chunk_core(
     overlap: usize,
     strategy: &str,
 ) -> PyResult<Vec<RawChunk>> {
-    validate_params(max_tokens, overlap)?;
+    validate_params(max_tokens, overlap, strategy)?;
 
     // Strategies group content into (max_tokens - overlap)-sized "core"
     // spans; apply_overlap then extends each span's start backward into the
@@ -70,18 +76,10 @@ fn chunk_core(
         None
     };
 
-    let spans = match strategy {
-        "fixed" => group_token_spans(token_spans.as_ref().unwrap(), core_max_tokens),
-        "sentence" => SentenceStrategy.split(text, core_max_tokens),
-        other => {
-            // A bad strategy name is a caller error (typically a typo like
-            // "sentance"), so ValueError, not NotImplementedError -- the
-            // latter reads as "a real strategy that's merely unbuilt".
-            return Err(PyValueError::new_err(format!(
-                "unknown strategy '{}'; supported strategies are 'fixed' and 'sentence'",
-                other
-            )))
-        }
+    let spans = if strategy == "fixed" {
+        group_token_spans(token_spans.as_ref().unwrap(), core_max_tokens)
+    } else {
+        SentenceStrategy.split(text, core_max_tokens)
     };
 
     let spans = if overlap > 0 {
@@ -216,10 +214,10 @@ pub fn chunk_files(
             )))
         }
     };
-    // Config errors (bad max_tokens/overlap) must fail loudly regardless of
+    // Config errors (bad max_tokens/overlap/strategy) must fail loudly regardless of
     // on_error, so check them once here instead of letting a per-file raise
     // get swallowed by skip mode.
-    validate_params(max_tokens, overlap)?;
+    validate_params(max_tokens, overlap, strategy)?;
 
     // Read + chunk every file in parallel with the GIL released, so other
     // Python threads keep running during this CPU/IO-bound work. Only
