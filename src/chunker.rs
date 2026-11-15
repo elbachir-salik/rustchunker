@@ -164,26 +164,37 @@ fn read_and_chunk_file(
         ))
     })?;
 
-    let reader = reader_for_extension(extension).ok_or_else(|| {
-        PyValueError::new_err(format!(
-            "unsupported file extension '.{}' for '{}'; supported: {}",
-            extension,
-            path.display(),
-            crate::readers::SUPPORTED_EXTENSIONS,
-        ))
-    })?;
-
-    let raw_contents = std::fs::read_to_string(path)
-        .map_err(|e| PyIOError::new_err(format!("failed to read '{}': {}", path.display(), e)))?;
-
-    // Strip a leading UTF-8 BOM (U+FEFF) if present. read_to_string keeps it
-    // as the first character, so without this it would leak into the first
-    // chunk's text -- common in Windows-authored .txt/.html files.
-    let raw_contents = raw_contents
-        .strip_prefix('\u{feff}')
-        .unwrap_or(&raw_contents);
-
-    let text = reader.extract(raw_contents);
+    let extension = extension.to_ascii_lowercase();
+    let text = match extension.as_str() {
+        "pdf" | "docx" => {
+            let raw = std::fs::read(path).map_err(|e| {
+                PyIOError::new_err(format!("failed to read '{}': {}", path.display(), e))
+            })?;
+            let extracted = if extension == "pdf" {
+                crate::readers::pdf::extract(&raw)
+            } else {
+                crate::readers::docx::extract(&raw)
+            };
+            extracted.map_err(|e| {
+                PyValueError::new_err(format!("failed to extract '{}': {}", path.display(), e))
+            })?
+        }
+        _ => {
+            let reader = reader_for_extension(&extension).ok_or_else(|| {
+                PyValueError::new_err(format!(
+                    "unsupported file extension '.{}' for '{}'; supported: {}",
+                    extension,
+                    path.display(),
+                    crate::readers::SUPPORTED_EXTENSIONS,
+                ))
+            })?;
+            let raw = std::fs::read_to_string(path).map_err(|e| {
+                PyIOError::new_err(format!("failed to read '{}': {}", path.display(), e))
+            })?;
+            let raw = raw.strip_prefix('\u{feff}').unwrap_or(&raw);
+            return chunk_core(&reader.extract(raw), max_tokens, overlap, strategy);
+        }
+    };
     chunk_core(&text, max_tokens, overlap, strategy)
 }
 

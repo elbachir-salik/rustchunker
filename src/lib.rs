@@ -11,8 +11,8 @@ mod tokenizer;
 /// A single chunk of a document. Produced only by `chunk()` and
 /// `chunk_files()` -- not constructible directly from Python.
 ///
-/// `start`/`end` are character offsets into the *source document*
-/// (`text == source[start:end]` in Python, including for non-ASCII text).
+/// `start`/`end` are character offsets into the input string for `chunk()`,
+/// or extracted text for `chunk_files()`, not positions in binary/markup files.
 ///
 /// `index` is the chunk's position *within its own source document*
 /// (0-based). For `chunk_files`, the returned list concatenates the chunks
