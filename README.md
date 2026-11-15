@@ -41,7 +41,7 @@ favour us → **[BENCHMARKS.md](BENCHMARKS.md)**.</sub>
 - **🎯 Clean sentence boundaries** — the `sentence` strategy splits only on real Unicode sentence ends: 100% clean boundaries in testing, vs 6–99% for the others. *(With `overlap > 0`, chunk **heads** gain a few words of leading context that may begin mid-sentence — see [Strategies](#-strategies).)*
 - **🪶 Light** — low memory, and zero Python runtime dependencies.
 - **🔌 Drop-in** — `pip install`, two lines of code, fully typed.
-- **📄 Reads your files** — `.txt`, `.md`, and `.html` parsed and stripped for you.
+- **📄 Reads your files** — `.txt`, `.md`, `.html`, `.pdf`, and Word `.docx` extracted for you.
 
 ## 📦 Install
 
@@ -60,7 +60,7 @@ for c in chunk("Your long document…", max_tokens=256, overlap=20, strategy="se
 
 # Thousands of files, in parallel across all cores
 chunks = chunk_files(
-    ["doc1.md", "doc2.txt", "doc3.html"],
+    ["doc1.md", "doc2.txt", "doc3.html", "report.pdf", "report.docx"],
     max_tokens=256,
     overlap=20,
     strategy="sentence",
@@ -68,14 +68,36 @@ chunks = chunk_files(
 )
 ```
 
-Files must be UTF-8 (a leading byte-order mark is stripped for you). By default
+Text and markup files must be UTF-8 (a leading byte-order mark is stripped).
+PDF and DOCX files are read as binary documents. By default
 `chunk_files` raises on the first file it can't read or parse; pass
 `on_error="skip"` to drop failing files and keep the rest — handy when ingesting
 a large, messy corpus where one bad file shouldn't sink the whole run.
 
-Each `Chunk` has `.text`, `.start` / `.end` (character offsets into the source
-document, so `source[c.start:c.end] == c.text`), `.index`, and `.metadata`
+Each `Chunk` has `.text`, `.start` / `.end` (character offsets into the input
+string for `chunk()`, or the extracted text for `chunk_files()`), `.index`, and `.metadata`
 (`source_file`, `total_chunks`, `strategy_used`, …).
+
+### PDF and Word support
+
+`chunk_files` extracts embedded PDF text and the main body of Word `.docx`
+files, including paragraphs and tables. Extraction runs in Rust with the
+existing parallel file processing; no Python packages or external converters
+are required. Extensions are case-insensitive.
+
+- Scanned/image-only PDFs need OCR first. PDFs with no extractable text raise
+  `ValueError`, or are omitted with `on_error="skip"`.
+- Encrypted PDFs are unsupported; decrypt them before ingestion. Complex PDF
+  layouts may not preserve visual reading order or table structure.
+- DOCX headers, footers, footnotes, comments and embedded images are not extracted.
+  The main document XML is limited to 64 MiB after decompression.
+- Legacy Word `.doc` files are unsupported; convert them to `.docx` first.
+- Offsets refer to extracted text, not the original PDF/DOCX bytes or page
+  coordinates. Chunks do not include page numbers.
+- Malformed PDF/DOCX files raise `ValueError`; missing/unreadable files raise
+  `OSError`. Both are omitted with `on_error="skip"`.
+
+The published plain-text benchmarks do not measure PDF/DOCX extraction speed.
 
 ## 🧠 Strategies
 

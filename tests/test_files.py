@@ -50,7 +50,7 @@ def test_chunk_files_metadata_fields():
 
 def test_chunk_files_unsupported_extension_raises():
     with pytest.raises(ValueError):
-        chunk_files([fixture_path("nonexistent.pdf")], max_tokens=8)
+        chunk_files([fixture_path("nonexistent.doc")], max_tokens=8)
 
 
 def test_chunk_files_missing_file_raises():
@@ -83,14 +83,14 @@ def test_chunk_files_empty_path_list_returns_no_chunks():
 
 def test_chunk_files_on_error_raise_is_default():
     # Default on_error="raise": one bad file aborts the whole batch.
-    paths = [fixture_path("sample.txt"), fixture_path("bad.pdf")]
+    paths = [fixture_path("sample.txt"), fixture_path("bad.doc")]
     with pytest.raises(ValueError):
         chunk_files(paths, max_tokens=8)
 
 
 def test_chunk_files_on_error_skip_drops_bad_files():
-    # on_error="skip": the unsupported .pdf is dropped, the good .txt survives.
-    paths = [fixture_path("sample.txt"), fixture_path("bad.pdf")]
+    # on_error="skip": the unsupported .doc is dropped, the good .txt survives.
+    paths = [fixture_path("sample.txt"), fixture_path("bad.doc")]
     result = chunk_files(paths, max_tokens=8, on_error="skip")
     assert len(result) > 0
     assert {c.metadata["source_file"] for c in result} == {fixture_path("sample.txt")}

@@ -5,9 +5,9 @@ class Chunk:
     """A single chunk of a document (produced by chunk()/chunk_files(), not
     constructible directly).
 
-    start/end are character offsets into the source document, so
-    ``source[chunk.start:chunk.end] == chunk.text`` holds even for non-ASCII
-    text.
+    start/end are character offsets into the input string for chunk(), or
+    the extracted text for chunk_files(). They are not byte offsets, PDF
+    page coordinates, or positions in the original markup/binary file.
 
     index is the chunk's position within its OWN source document (0-based).
     For chunk_files, the returned list concatenates every file's chunks, so
@@ -41,11 +41,13 @@ def chunk(
 ) -> list[Chunk]: ...
 
 # paths accepts str or any os.PathLike (e.g. pathlib.Path).
-# supported extensions: .txt, .md, .markdown, .html, .htm.
-# Files must be UTF-8 (a leading BOM is stripped automatically).
+# supported extensions: .txt, .md, .markdown, .html, .htm, .pdf, .docx.
+# Text/markup files must be UTF-8 (a leading BOM is stripped automatically).
+# PDF requires embedded text (no OCR); DOCX reads the main document body
+# including tables. Legacy .doc is unsupported. No page metadata is returned.
 #
 # on_error controls what happens when a file can't be read or chunked
-# (unsupported extension, I/O error, invalid UTF-8):
+# (unsupported extension, I/O error, invalid UTF-8, extraction failure):
 #   "raise" (default) -- the first failing file aborts the whole call
 #                        (raises ValueError / OSError).
 #   "skip"            -- failing files are omitted and the rest still return.
