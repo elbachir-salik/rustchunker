@@ -89,6 +89,8 @@ are required. Extensions are case-insensitive.
   `ValueError`, or are omitted with `on_error="skip"`.
 - Encrypted PDFs are unsupported; decrypt them before ingestion. Complex PDF
   layouts may not preserve visual reading order or table structure.
+- DOCX compatibility alternatives are extracted once: the first `Choice`, or
+  `Fallback` if there is no choice. This is text extraction, not Word layout rendering.
 - DOCX headers, footers, footnotes, comments and embedded images are not extracted.
   The main document XML is limited to 64 MiB after decompression.
 - Legacy Word `.doc` files are unsupported; convert them to `.docx` first.

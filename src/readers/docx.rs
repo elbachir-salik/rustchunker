@@ -5,6 +5,8 @@ const WORD_NAMESPACES: &[&str] = &[
     "http://purl.oclc.org/ooxml/wordprocessingml/main",
 ];
 
+const COMPATIBILITY_NS: &str = "http://schemas.openxmlformats.org/markup-compatibility/2006";
+
 pub fn extract(raw: &[u8]) -> Result<String, String> {
     let mut archive = zip::ZipArchive::new(Cursor::new(raw)).map_err(|e| e.to_string())?;
     let mut document = archive
@@ -27,7 +29,10 @@ pub fn extract(raw: &[u8]) -> Result<String, String> {
         return Err("DOCX main part is not a Word document".into());
     }
     let mut text = String::new();
-    for node in document.descendants().filter(|node| is_word_element(*node)) {
+    for node in document
+        .descendants()
+        .filter(|node| is_word_element(*node) && is_selected_content(*node))
+    {
         match node.tag_name().name() {
             "t" => text.push_str(node.text().unwrap_or("")),
             "tab" | "tc" => text.push('\t'),
@@ -44,4 +49,25 @@ fn is_word_element(node: roxmltree::Node<'_, '_>) -> bool {
             .tag_name()
             .namespace()
             .is_some_and(|ns| WORD_NAMESPACES.contains(&ns))
+}
+
+fn is_selected_content(node: roxmltree::Node<'_, '_>) -> bool {
+    node.ancestors().all(|branch| {
+        let Some(parent) = branch
+            .parent()
+            .filter(|parent| parent.has_tag_name((COMPATIBILITY_NS, "AlternateContent")))
+        else {
+            return true;
+        };
+        // Plain-text extraction prefers the first Choice, or Fallback if none exists.
+        let selected = parent
+            .children()
+            .find(|child| child.has_tag_name((COMPATIBILITY_NS, "Choice")))
+            .or_else(|| {
+                parent
+                    .children()
+                    .find(|child| child.has_tag_name((COMPATIBILITY_NS, "Fallback")))
+            });
+        selected == Some(branch)
+    })
 }

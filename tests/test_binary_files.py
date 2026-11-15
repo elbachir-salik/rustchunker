@@ -148,3 +148,28 @@ def test_pdf_parser_panic_is_a_skippable_value_error(tmp_path):
     with pytest.raises(ValueError, match="PDF parser failed"):
         chunk_files([path], max_tokens=10)
     assert chunk_files([path], max_tokens=10, on_error="skip") == []
+
+
+@pytest.mark.parametrize("namespace", [WORD_NS, "http://purl.oclc.org/ooxml/wordprocessingml/main"])
+@pytest.mark.parametrize("branches,expected", [
+    ('<c:Choice Requires="w"><w:p><w:r><w:t>Selected.</w:t></w:r></w:p></c:Choice><c:Fallback><w:p><w:r><w:t>Selected.</w:t></w:r></w:p></c:Fallback>', "Before. Selected. After."),
+    ('<c:Choice Requires="w"><w:p><w:r><w:t>Selected.</w:t></w:r></w:p></c:Choice><c:Fallback><w:p><w:r><w:t>Old version.</w:t></w:r></w:p></c:Fallback>', "Before. Selected. After."),
+    ('<c:Choice Requires="w"><w:p><w:r><w:t>First.</w:t></w:r></w:p></c:Choice><c:Choice Requires="w"><w:p><w:r><w:t>Second.</w:t></w:r></w:p></c:Choice><c:Fallback><w:p><w:r><w:t>Fallback.</w:t></w:r></w:p></c:Fallback>', "Before. First. After."),
+    ('<c:Fallback><w:p><w:r><w:t>Fallback.</w:t></w:r></w:p></c:Fallback>', "Before. Fallback. After."),
+    ('<c:Choice Requires="w"/><c:Fallback><w:p><w:r><w:t>Hidden.</w:t></w:r></w:p></c:Fallback>', "Before. After."),
+    ('<c:Choice Requires="w"><c:AlternateContent><c:Choice Requires="w"><w:p><w:r><w:t>Nested.</w:t></w:r></w:p></c:Choice><c:Fallback><w:p><w:r><w:t>Hidden inner.</w:t></w:r></w:p></c:Fallback></c:AlternateContent></c:Choice><c:Fallback><w:p><w:r><w:t>Hidden outer.</w:t></w:r></w:p></c:Fallback>', "Before. Nested. After."),
+], ids=["duplicate", "different-fallback", "multiple-choices", "fallback-only", "empty-choice", "nested"])
+def test_docx_extracts_one_alternate_content_branch(tmp_path, namespace, branches, expected):
+    body = ('<w:p><w:r><w:t>Before.</w:t></w:r></w:p>'
+            '<c:AlternateContent xmlns:c="http://schemas.openxmlformats.org/markup-compatibility/2006">'
+            + branches + '</c:AlternateContent>'
+            '<w:p><w:r><w:t>After.</w:t></w:r></w:p>')
+    path = write_docx(tmp_path / "alternatives.docx", body, namespace=namespace)
+    chunks = chunk_files([path], max_tokens=100)
+    assert " ".join(c.text for c in chunks).split() == expected.split()
+
+
+def test_docx_preserves_repeated_text_outside_alternate_content(tmp_path):
+    paragraph = '<w:p><w:r><w:t>Repeated text.</w:t></w:r></w:p>'
+    path = write_docx(tmp_path / "repeated.docx", paragraph + paragraph)
+    assert chunk_files([path], max_tokens=100)[0].text.split() == ["Repeated", "text."] * 2
