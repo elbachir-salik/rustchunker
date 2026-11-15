@@ -1,7 +1,7 @@
 /// Extends the start of each chunk (after the first) backward by up to
 /// `overlap` whitespace tokens, so consecutive chunks share trailing/leading
-/// content. Operates on whole token spans, so it never cuts a word in half,
-/// and never reaches back past the previous chunk's own (pre-overlap) start
+/// content. Token spans are clamped to the previous chunk's own
+/// (pre-overlap) start, including sentence boundaries inside a token
 /// — overlap can only pull in tokens that actually belonged to chunk N when
 /// building chunk N+1's head.
 ///
@@ -31,12 +31,9 @@ pub fn apply_overlap(
     for i in 1..spans.len() {
         let (_, end) = spans[i];
         let cur_start_idx = token_index_at_or_after(spans[i].0);
-        let prev_start_idx = token_index_at_or_after(spans[i - 1].0);
-
-        let available = cur_start_idx.saturating_sub(prev_start_idx);
-        let overlap_amount = overlap.min(available);
-        let new_start_idx = cur_start_idx - overlap_amount;
-        let new_start = token_spans[new_start_idx].0;
+        let new_start_idx = cur_start_idx.saturating_sub(overlap);
+        // Sentence boundaries can fall inside a whitespace token (e.g. CJK).
+        let new_start = token_spans[new_start_idx].0.max(spans[i - 1].0);
 
         result.push((new_start, end));
     }
@@ -101,5 +98,14 @@ mod tests {
         let spans = fixed_spans(3);
         let overlapped = apply_overlap(&tokens(), &spans, 2);
         assert_eq!(overlapped[0], spans[0]);
+    }
+
+    #[test]
+    fn sentence_boundaries_inside_one_token_keep_previous_sentence() {
+        let text = "你好。世界。再见。";
+        let spans = crate::strategies::sentence::SentenceStrategy.split(text, 1);
+        let overlapped = apply_overlap(&tokenize_spans(text), &spans, 1);
+        let chunks: Vec<_> = overlapped.iter().map(|&(s, e)| &text[s..e]).collect();
+        assert_eq!(chunks, vec!["你好。", "你好。世界。", "世界。再见。"]);
     }
 }
