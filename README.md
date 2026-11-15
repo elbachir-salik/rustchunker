@@ -123,6 +123,29 @@ maturin develop --release   # requires Rust + maturin; always use --release for 
 pytest
 ```
 
+## Release checks
+
+Run from an activated virtual environment with maturin and pytest installed:
+
+```bash
+cargo fmt --all -- --check
+cargo clippy --locked --all-targets -- -D warnings
+cargo test --locked --all-targets
+maturin develop --release --locked
+python -m pytest -q tests
+```
+
+CI also tests the Rust core on Linux, Windows, and macOS, checks the minimum
+Rust version (1.83), tests the Linux wheel on the oldest and newest Python,
+and builds and tests the source archive before publishing. Maturin enables
+PyO3's extension-module feature through `pyproject.toml`; plain Cargo tests
+leave it disabled so test executables can link to Python on Unix.
+
+Correctness tests do not measure speed. Before a release, compare runtime
+and whole-process peak memory with the previous version on the same machine
+and corpus, using release builds and the scripts in [BENCHMARKS.md](BENCHMARKS.md).
+
+
 ## 📄 License
 
 Dual-licensed under **MIT** or **Apache-2.0**, at your option.
